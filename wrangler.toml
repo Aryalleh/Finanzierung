@@ -1,0 +1,17 @@
+name = "finanzierung"
+main = "src/worker.js"
+compatibility_date = "2024-11-01"
+
+# فایل‌های ثابت PWA (رابط کاربری) از پوشه public سرو می‌شوند.
+# درخواست‌های /api/* را Worker مدیریت می‌کند و بقیه به فایل‌های استاتیک می‌روند.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# پایگاه‌داده D1 (SQLite) برای ذخیره پاکت‌ها و تراکنش‌ها.
+# پس از اجرای `npm run db:create`، مقدار database_id را از خروجی اینجا جایگزین کنید.
+[[d1_databases]]
+binding = "DB"
+database_name = "finanzierung"
+database_id = "REPLACE_WITH_YOUR_DATABASE_ID"

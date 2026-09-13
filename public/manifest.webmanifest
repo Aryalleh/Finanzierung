@@ -1,0 +1,27 @@
+{
+  "name": "مدیریت حقوق ماهانه",
+  "short_name": "حقوق ماهانه",
+  "description": "مدیریت مالی ماهانه با پاکت‌های بودجه: ورودی، خروجی و موجودی هر بخش",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

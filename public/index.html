@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>💶 مدیریت حقوق ماهانه</title>
+  <meta name="description" content="مدیریت مالی ماهانه با پاکت‌های بودجه: ورودی، خروجی و موجودی هر بخش" />
+  <meta name="theme-color" content="#0f766e" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="wrap header-inner">
+      <h1>💶 مدیریت حقوق ماهانه</h1>
+      <div class="header-controls">
+        <label class="month-picker">
+          <span class="visually-hidden">ماه</span>
+          <input type="month" id="monthInput" />
+        </label>
+        <select id="currencySelect" title="واحد پول" aria-label="واحد پول">
+          <option value="EUR">€ یورو</option>
+          <option value="USD">$ دلار</option>
+          <option value="TRY">₺ لیر</option>
+          <option value="IRR">﷼ ریال</option>
+          <option value="IRT">تومان</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- خلاصه‌ی کل -->
+    <section class="summary" aria-label="خلاصه">
+      <div class="summary-card balance">
+        <span class="label">موجودی کل</span>
+        <strong id="sumBalance" class="value">—</strong>
+      </div>
+      <div class="summary-card income">
+        <span class="label">ورودی این ماه</span>
+        <strong id="sumIncome" class="value">—</strong>
+      </div>
+      <div class="summary-card expense">
+        <span class="label">خروجی این ماه</span>
+        <strong id="sumExpense" class="value">—</strong>
+      </div>
+    </section>
+
+    <!-- اقدام‌ها -->
+    <section class="actions">
+      <button id="btnDistribute" class="btn btn-primary">💸 تقسیم حقوق</button>
+      <button id="btnAddTx" class="btn">➕ ثبت تراکنش</button>
+      <button id="btnAddPocket" class="btn btn-ghost">🗂️ پاکت جدید</button>
+    </section>
+
+    <!-- پاکت‌ها -->
+    <section aria-label="پاکت‌ها">
+      <h2 class="section-title">پاکت‌ها</h2>
+      <div id="pockets" class="pockets-grid">
+        <div class="empty" id="pocketsEmpty" hidden>هنوز پاکتی نیست.</div>
+      </div>
+    </section>
+
+    <!-- تراکنش‌های اخیر -->
+    <section aria-label="تراکنش‌های اخیر">
+      <h2 class="section-title">تراکنش‌های اخیر</h2>
+      <ul id="txList" class="tx-list"></ul>
+      <div class="empty" id="txEmpty" hidden>تراکنشی برای این ماه ثبت نشده است.</div>
+    </section>
+  </main>
+
+  <footer class="app-footer wrap">
+    <span id="offlineBadge" class="badge-offline" hidden>آفلاین</span>
+    <span>ساخته‌شده با Cloudflare Workers · داده‌ها روی D1</span>
+  </footer>
+
+  <!-- ============ مودال‌ها ============ -->
+
+  <!-- مودال تراکنش -->
+  <dialog id="txDialog" class="dialog">
+    <form method="dialog" id="txForm">
+      <h3 id="txDialogTitle">ثبت تراکنش</h3>
+      <div class="field">
+        <label>نوع</label>
+        <div class="segmented" role="radiogroup">
+          <label><input type="radio" name="txType" value="expense" checked /> <span>➖ خروجی</span></label>
+          <label><input type="radio" name="txType" value="income" /> <span>➕ ورودی</span></label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="txPocket">پاکت</label>
+        <select id="txPocket" required></select>
+      </div>
+      <div class="field">
+        <label for="txAmount">مبلغ</label>
+        <input id="txAmount" type="number" inputmode="decimal" min="0" step="0.01" required placeholder="مثلاً 250" />
+      </div>
+      <div class="field">
+        <label for="txNote">توضیح (اختیاری)</label>
+        <input id="txNote" type="text" maxlength="500" placeholder="مثلاً خرید هفتگی" />
+      </div>
+      <div class="field">
+        <label for="txDate">تاریخ</label>
+        <input id="txDate" type="date" required />
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-close>انصراف</button>
+        <button type="submit" class="btn btn-primary">ذخیره</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- مودال تقسیم حقوق -->
+  <dialog id="distDialog" class="dialog">
+    <form method="dialog" id="distForm">
+      <h3>تقسیم حقوق ماهانه</h3>
+      <div class="field">
+        <label for="distAmount">مبلغ کل حقوق</label>
+        <input id="distAmount" type="number" inputmode="decimal" min="0" step="0.01" required placeholder="مثلاً 2500" />
+      </div>
+      <div class="field">
+        <label for="distDate">تاریخ</label>
+        <input id="distDate" type="date" required />
+      </div>
+      <p class="hint">درصد هر پاکت را می‌توانید تنظیم کنید؛ مبلغ به نسبت مجموع درصدها تقسیم می‌شود.</p>
+      <div id="distRows" class="dist-rows"></div>
+      <div class="dist-total">
+        مجموع درصد: <strong id="distTotalPct">۰٪</strong>
+        <button type="button" id="distReset" class="link-btn">بازنشانی به پیش‌فرض</button>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-close>انصراف</button>
+        <button type="submit" class="btn btn-primary">تقسیم و ثبت ورودی</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- مودال پاکت -->
+  <dialog id="pocketDialog" class="dialog">
+    <form method="dialog" id="pocketForm">
+      <h3 id="pocketDialogTitle">پاکت جدید</h3>
+      <input type="hidden" id="pocketId" />
+      <div class="field-row">
+        <div class="field field-emoji">
+          <label for="pocketEmoji">آیکن</label>
+          <input id="pocketEmoji" type="text" maxlength="4" value="💰" />
+        </div>
+        <div class="field field-grow">
+          <label for="pocketName">نام</label>
+          <input id="pocketName" type="text" maxlength="80" required placeholder="مثلاً کتاب و آموزش" />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="pocketMin">حداقل درصد</label>
+          <input id="pocketMin" type="number" min="0" max="100" step="1" value="0" />
+        </div>
+        <div class="field">
+          <label for="pocketMax">حداکثر درصد</label>
+          <input id="pocketMax" type="number" min="0" max="100" step="1" value="0" />
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="pocketDelete" class="btn btn-danger" hidden>حذف</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>انصراف</button>
+        <button type="submit" class="btn btn-primary">ذخیره</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
