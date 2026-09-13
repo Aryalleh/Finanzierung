@@ -624,8 +624,8 @@ function showEmailAuth() {
 }
 function showTgAuth() {
   $("#authForm").hidden = true; $("#authSwitch").hidden = true; $("#tgSection").hidden = true;
-  $("#tgForm").hidden = false; $("#tgStep1").hidden = false; $("#tgStep2").hidden = true;
-  $("#tgSubmit").hidden = false; $("#tgSubmit").textContent = "ارسال درخواست"; $("#tgError").hidden = true;
+  $("#tgForm").hidden = false;
+  renderTgWidget();
 }
 function showAuth() {
   $("#appScreen").hidden = true; $("#distributeScreen").hidden = true; $("#loansScreen").hidden = true; $("#scoreScreen").hidden = true;
@@ -674,39 +674,45 @@ async function telegramMiniAppLogin() {
     state.user = data.user; showApp(); return true;
   } catch (err) { toast(err.message); return false; }
 }
-let tgPollTimer = null;
-function stopTgPoll() { if (tgPollTimer) { clearInterval(tgPollTimer); tgPollTimer = null; } }
+function stopTgPoll() {} // سازگاری با فراخوانی‌های قبلی
+let tgWidgetLoaded = false;
 $("#tgLoginBtn").addEventListener("click", () => { if (inTelegram) telegramMiniAppLogin(); else showTgAuth(); });
 $("#tgBack").addEventListener("click", showEmailAuth);
-$("#tgForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
+
+// callback سراسری که ویجت تلگرام صدا می‌زند
+window.onTelegramAuth = async (user) => {
   const errEl = $("#tgError"); errEl.hidden = true;
-  const identifier = $("#tgIdentifier").value.trim();
-  if (!identifier) { errEl.textContent = "نام کاربری تلگرام را وارد کنید"; errEl.hidden = false; return; }
-  const btn = $("#tgSubmit"); btn.disabled = true; btn.textContent = "لطفاً صبر کنید…";
+  $("#tgWaiting").hidden = false;
   try {
-    const r = await api("/auth/telegram/request-login", { method: "POST", body: JSON.stringify({ identifier }) });
-    $("#tgStep1").hidden = true; $("#tgStep2").hidden = false; btn.hidden = true;
-    if (r.dev) {
-      // حالت توسعه: تأیید خودکار برای تست
-      setTimeout(() => api("/auth/telegram/dev-approve", { method: "POST", body: JSON.stringify({ token: r.token }) }).catch(() => {}), 800);
-    }
-    startTgPoll(r.token);
-  } catch (err) { errEl.textContent = err.message; errEl.hidden = false; btn.disabled = false; btn.textContent = "ارسال درخواست"; }
-});
-function startTgPoll(token) {
-  stopTgPoll();
-  let tries = 0;
-  tgPollTimer = setInterval(async () => {
-    tries++;
-    if (tries > 60) { stopTgPoll(); $("#tgError").textContent = "زمان تأیید تمام شد؛ دوباره تلاش کنید"; $("#tgError").hidden = false; showTgAuth(); return; }
-    try {
-      const r = await api(`/auth/telegram/login-status?token=${token}`);
-      if (r.status === "approved") { stopTgPoll(); state.user = r.user; showApp(); }
-      else if (r.status === "denied") { stopTgPoll(); $("#tgError").textContent = "ورود در تلگرام رد شد"; $("#tgError").hidden = false; showTgAuth(); }
-      else if (r.status === "expired") { stopTgPoll(); $("#tgError").textContent = "درخواست منقضی شد"; $("#tgError").hidden = false; showTgAuth(); }
-    } catch {}
-  }, 2000);
+    const res = await fetch("/api/auth/telegram/widget", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify(user) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "ورود تلگرام ناموفق بود");
+    state.user = data.user; showApp();
+  } catch (err) { $("#tgWaiting").hidden = true; errEl.textContent = err.message; errEl.hidden = false; }
+};
+
+async function renderTgWidget() {
+  const host = $("#tgWidgetHost"), errEl = $("#tgError");
+  $("#tgWaiting").hidden = true; errEl.hidden = true;
+  const cfg = state.tgConfig || {};
+  if (!cfg.telegram_enabled || !cfg.telegram_bot) {
+    host.innerHTML = "";
+    errEl.textContent = "ورود تلگرام روی سرور پیکربندی نشده است (TELEGRAM_BOT_TOKEN تنظیم نشده).";
+    errEl.hidden = false;
+    return;
+  }
+  // اسکریپت ویجت را یک‌بار برای هر یوزرنیم بساز
+  host.innerHTML = "";
+  const s = document.createElement("script");
+  s.async = true;
+  s.src = "https://telegram.org/js/telegram-widget.js?22";
+  s.setAttribute("data-telegram-login", cfg.telegram_bot);
+  s.setAttribute("data-size", "large");
+  s.setAttribute("data-radius", "12");
+  s.setAttribute("data-request-access", "write");
+  s.setAttribute("data-onauth", "onTelegramAuth(user)");
+  host.appendChild(s);
+  tgWidgetLoaded = true;
 }
 
 /* ============ تم و پالت ============ */
@@ -746,6 +752,8 @@ async function init() {
   applyTheme();
   applyCurrencyLabel();
   if (tg) { try { tg.ready(); tg.expand(); } catch {} }
+  try { state.tgConfig = await api("/config"); } catch { state.tgConfig = { telegram_enabled: false }; }
+  if (!state.tgConfig.telegram_enabled && !inTelegram) { const b = $("#tgSection"); if (b) b.style.display = "none"; }
   try {
     const me = await api("/auth/me");
     state.user = me.user; showApp(); return;

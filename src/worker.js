@@ -390,6 +390,43 @@ async function verifyTelegramInitData(initData, botToken) {
   if (!authDate || Date.now() - authDate > 86400 * 1000) return null; // حداکثر یک روز
   try { return JSON.parse(params.get("user")); } catch { return null; }
 }
+// اعتبارسنجی داده‌ی Telegram Login Widget (secret = SHA256(token))
+async function verifyLoginWidget(data, botToken) {
+  if (!data || !data.hash) return null;
+  const pairs = Object.keys(data).filter((k) => k !== "hash").sort().map((k) => `${k}=${data[k]}`).join("\n");
+  const secret = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(botToken)));
+  const mac = bytesToHex(await hmac(secret, enc.encode(pairs)));
+  if (!safeEqual(mac, String(data.hash))) return null;
+  const authDate = Number(data.auth_date) * 1000;
+  if (!authDate || Date.now() - authDate > 86400 * 1000) return null;
+  return { id: data.id, username: data.username, first_name: data.first_name, last_name: data.last_name, photo_url: data.photo_url };
+}
+// ساخت/به‌روزرسانی کاربر تلگرام (مشترک بین مینی‌اپ و ویجت)
+async function upsertTelegramUser(db, tgUser, req) {
+  const tgId = String(tgUser.id);
+  const uname = tgUser.username || null;
+  const photo = tgUser.photo_url || null;
+  const display = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") || uname || "کاربر تلگرام";
+  let u = await db.prepare(`SELECT * FROM users WHERE telegram_id = ?`).bind(tgId).first();
+  if (u) {
+    await db.prepare(`UPDATE users SET telegram_username=?, telegram_chat_id=?, telegram_photo_url=?, display_name=COALESCE(display_name,?) WHERE id=?`)
+      .bind(uname, tgId, photo, display, u.id).run();
+    u.telegram_photo_url = photo;
+  } else {
+    const res = await db.prepare(`INSERT INTO users (telegram_id, telegram_username, telegram_chat_id, telegram_photo_url, display_name) VALUES (?,?,?,?,?)`)
+      .bind(tgId, uname, tgId, photo, display).run();
+    u = { id: res.meta.last_row_id, email: null, telegram_username: uname, display_name: display, telegram_photo_url: photo };
+    await seedPockets(db, u.id, DEFAULT_CURRENCY);
+  }
+  return u;
+}
+let botUsernameCache;
+async function getBotUsername(token) {
+  if (botUsernameCache !== undefined) return botUsernameCache;
+  try { const r = await fetch(`https://api.telegram.org/bot${token}/getMe`); const j = await r.json(); botUsernameCache = j.result?.username || null; }
+  catch { botUsernameCache = null; }
+  return botUsernameCache;
+}
 async function sendTelegramMessage(botToken, chatId, text, replyMarkup) {
   try {
     const body = { chat_id: chatId, text };
@@ -466,22 +503,18 @@ async function handleAuth(req, env, db, segments) {
       if (token) tgUser = await verifyTelegramInitData(initData, token);
       else if (devMode) { try { tgUser = JSON.parse(new URLSearchParams(initData).get("user")); } catch {} }
       if (!tgUser || !tgUser.id) return json({ error: "اعتبارسنجی تلگرام ناموفق بود" }, 401);
+      const u = await upsertTelegramUser(db, tgUser, req);
+      const cookie = await createSession(db, u.id, req);
+      return json({ user: publicUser(u) }, 200, { "Set-Cookie": cookie });
+    }
 
-      const tgId = String(tgUser.id);
-      const uname = tgUser.username || null;
-      const photo = tgUser.photo_url || null;
-      const display = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") || uname || "کاربر تلگرام";
-      let u = await db.prepare(`SELECT * FROM users WHERE telegram_id = ?`).bind(tgId).first();
-      if (u) {
-        await db.prepare(`UPDATE users SET telegram_username=?, telegram_chat_id=?, telegram_photo_url=?, display_name=COALESCE(display_name,?) WHERE id=?`)
-          .bind(uname, tgId, photo, display, u.id).run();
-        u.telegram_photo_url = photo;
-      } else {
-        const res = await db.prepare(`INSERT INTO users (telegram_id, telegram_username, telegram_chat_id, telegram_photo_url, display_name) VALUES (?,?,?,?,?)`)
-          .bind(tgId, uname, tgId, photo, display).run();
-        u = { id: res.meta.last_row_id, email: null, telegram_username: uname, display_name: display, telegram_photo_url: photo };
-        await seedPockets(db, u.id, DEFAULT_CURRENCY);
-      }
+    // ورود با Telegram Login Widget (در مرورگر — بدون وب‌هوک)
+    if (sub === "widget" && method === "POST") {
+      if (!token) return json({ error: "ورود تلگرام روی سرور پیکربندی نشده (TELEGRAM_BOT_TOKEN)" }, 400);
+      const b = await req.json().catch(() => ({}));
+      const tgUser = await verifyLoginWidget(b, token);
+      if (!tgUser || !tgUser.id) return json({ error: "اعتبارسنجی تلگرام ناموفق بود" }, 401);
+      const u = await upsertTelegramUser(db, tgUser, req);
       const cookie = await createSession(db, u.id, req);
       return json({ user: publicUser(u) }, 200, { "Set-Cookie": cookie });
     }
@@ -936,6 +969,10 @@ async function handleApi(req, env, path) {
   await ensureSchema(db);
   const segments = path.split("/").filter(Boolean);
   if (segments[1] === "health") return json({ ok: true, name: "finanzierung", time: new Date().toISOString() });
+  if (segments[1] === "config") {
+    const token = env.TELEGRAM_BOT_TOKEN;
+    return json({ telegram_enabled: !!token, telegram_bot: token ? await getBotUsername(token) : null });
+  }
   if (segments[1] === "telegram" && segments[2] === "webhook") return handleTelegramWebhook(req, env, db);
   if (segments[1] === "auth") return handleAuth(req, env, db, segments);
   const user = await getUser(req, db);

@@ -87,25 +87,20 @@
         </button>
       </div>
 
-      <!-- ورود با تلگرام در مرورگر: تأیید/رد -->
-      <form id="tgForm" class="space-y-4 relative" hidden>
+      <!-- ورود با تلگرام در مرورگر: Login Widget رسمی -->
+      <div id="tgForm" class="space-y-4 relative" hidden>
         <div class="flex items-center gap-2">
           <button type="button" id="tgBack" class="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-muted"><i class="fa-solid fa-arrow-right text-xs"></i></button>
-          <p class="text-xs font-bold text-slate-500">ورود با تأیید در تلگرام</p>
+          <p class="text-xs font-bold text-slate-500">ورود با تلگرام</p>
         </div>
-        <div id="tgStep1" class="space-y-1.5">
-          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">نام کاربری تلگرام</label>
-          <input id="tgIdentifier" type="text" placeholder="@username" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand" dir="ltr">
-          <p class="text-[10px] font-bold text-slate-400 mt-1">پیام تأیید به تلگرام شما ارسال می‌شود. (ابتدا باید از مینی‌اپ وارد شده باشید.)</p>
-        </div>
-        <div id="tgStep2" class="text-center py-4 space-y-3" hidden>
-          <div class="w-12 h-12 mx-auto rounded-full border-4 border-brand/20 border-t-brand animate-spin"></div>
-          <p class="text-sm font-bold text-ink">در انتظار تأیید در تلگرام…</p>
-          <p class="text-[11px] font-bold text-muted">در تلگرام روی «✅ تأیید ورود» بزنید.</p>
+        <div id="tgWidgetHost" class="flex justify-center py-3 min-h-[54px]"></div>
+        <div id="tgWaiting" class="text-center py-2 space-y-2" hidden>
+          <div class="w-10 h-10 mx-auto rounded-full border-4 border-brand/20 border-t-brand animate-spin"></div>
+          <p class="text-xs font-bold text-muted">در حال ورود…</p>
         </div>
         <p id="tgError" class="text-xs font-bold text-red-600 bg-red-50 rounded-xl px-3 py-2 text-center" hidden></p>
-        <button id="tgSubmit" type="submit" class="w-full py-3.5 bg-brand text-white rounded-2xl font-black text-sm active:scale-[0.98] transition-all">ارسال درخواست</button>
-      </form>
+        <p class="text-[10px] font-bold text-slate-400 text-center leading-relaxed">روی دکمه‌ی تلگرام بالا بزنید و در تلگرام تأیید کنید.<br>اگر دکمه ظاهر نشد، ورود تلگرام روی سرور هنوز پیکربندی نشده است.</p>
+      </div>
     </div>
     <p class="text-center text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">مدیریت حقوق ماهانه</p>
   </div>
