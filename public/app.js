@@ -728,6 +728,7 @@ function showTgAuth() {
   renderTgWidget();
 }
 function showAuth() {
+  stopPolling();
   $("#appScreen").hidden = true; $("#distributeScreen").hidden = true; $("#loansScreen").hidden = true; $("#scoreScreen").hidden = true;
   $("#authScreen").hidden = false; showEmailAuth();
 }
@@ -744,6 +745,7 @@ function showApp() {
   $("#avatarBtn").innerHTML = avatarInner(state.user);
   applyMonth(); applyCurrencyLabel(); updateSyncUI(); refresh();
   if (navigator.onLine && queueCount() > 0) flushQueue();
+  startPolling();
 }
 $("#authToggle").addEventListener("click", () => setAuthMode(authMode === "login" ? "register" : "login"));
 $("#togglePw").addEventListener("click", () => {
@@ -848,12 +850,65 @@ $("#paletteOptions").addEventListener("click", (e) => {
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { if (currentThemePref() === "system") applyTheme(); });
 
+/* ============ به‌روزرسانی خودکارِ داده در پس‌زمینه ============ */
+function anyOverlayOpen() {
+  if (!$("#distributeScreen").hidden || !$("#loansScreen").hidden || !$("#scoreScreen").hidden) return true;
+  return [...document.querySelectorAll(".fixed.z-50")].some((m) => !m.hidden);
+}
+let pollTimer = null;
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(pollTick, 20000); // هر ۲۰ ثانیه
+}
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+async function pollTick() {
+  if (document.hidden || !navigator.onLine || $("#appScreen").hidden) return;
+  checkVersion();
+  if (anyOverlayOpen()) return; // مزاحم مودال‌ها/صفحه‌های باز نشو
+  refresh();
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { pollTick(); if (swReg) swReg.update().catch(() => {}); } });
+window.addEventListener("focus", pollTick);
+
+/* ============ پاپ‌آپ به‌روزرسانی نسخه ============ */
+async function checkVersion() {
+  try {
+    const c = await api("/config");
+    if (c.app_version) {
+      if (!state.appVersion) state.appVersion = c.app_version;
+      else if (c.app_version !== state.appVersion) showUpdate();
+    }
+  } catch {}
+}
+function showUpdate() { const b = $("#updateBanner"); if (b) b.hidden = false; }
+$("#updateBtn").addEventListener("click", async () => {
+  try { if (swReg && swReg.waiting) swReg.waiting.postMessage("SKIP_WAITING"); } catch {}
+  location.reload(true);
+});
+$("#updateDismiss").addEventListener("click", () => ($("#updateBanner").hidden = true));
+
+/* ============ Service Worker + تشخیص به‌روزرسانی ============ */
+let swReg = null, swRefreshing = false;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (!swRefreshing) { swRefreshing = true; location.reload(); } });
+  window.addEventListener("load", async () => {
+    try {
+      swReg = await navigator.serviceWorker.register("/sw.js");
+      if (swReg.waiting && navigator.serviceWorker.controller) showUpdate();
+      swReg.addEventListener("updatefound", () => {
+        const nw = swReg.installing;
+        if (nw) nw.addEventListener("statechange", () => { if (nw.state === "installed" && navigator.serviceWorker.controller) showUpdate(); });
+      });
+    } catch {}
+  });
+}
+
 /* ============ شروع ============ */
 async function init() {
   applyTheme();
   applyCurrencyLabel();
   if (tg) { try { tg.ready(); tg.expand(); } catch {} }
-  try { state.tgConfig = await api("/config"); } catch { state.tgConfig = { telegram_enabled: false }; }
+  try { state.tgConfig = await api("/config"); state.appVersion = state.tgConfig.app_version; } catch { state.tgConfig = { telegram_enabled: false }; }
   if (!state.tgConfig.telegram_enabled && !inTelegram) { const b = $("#tgSection"); if (b) b.style.display = "none"; }
   try {
     const me = await api("/auth/me");
@@ -862,5 +917,4 @@ async function init() {
   if (inTelegram) { const okLogin = await telegramMiniAppLogin(); if (okLogin) return; }
   setAuthMode("login"); showAuth();
 }
-if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 init();

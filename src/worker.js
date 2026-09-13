@@ -6,6 +6,7 @@
  * پاکت‌های مشترک بین کاربران، و دفتر قرض بین کاربران.
  */
 
+const APP_VERSION = "2025.10.01"; // با هر تغییر فرانت این را عوض کنید تا پاپ‌آپ به‌روزرسانی نشان داده شود
 const COOKIE_NAME = "fin_session";
 const SESSION_TTL_DAYS = 30;
 const PBKDF2_ITERATIONS = 100000;
@@ -1037,7 +1038,7 @@ async function handleApi(req, env, path) {
   if (segments[1] === "health") return json({ ok: true, name: "finanzierung", time: new Date().toISOString() });
   if (segments[1] === "config") {
     const token = env.TELEGRAM_BOT_TOKEN;
-    return json({ telegram_enabled: !!token, telegram_bot: token ? await getBotUsername(token) : null });
+    return json({ app_version: APP_VERSION, telegram_enabled: !!token, telegram_bot: token ? await getBotUsername(token) : null });
   }
   if (segments[1] === "telegram" && segments[2] === "webhook") return handleTelegramWebhook(req, env, db);
   if (segments[1] === "auth") return handleAuth(req, env, db, segments);

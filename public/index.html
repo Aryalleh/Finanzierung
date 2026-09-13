@@ -495,6 +495,19 @@
   </div>
 </div>
 
+<!-- پاپ‌آپ به‌روزرسانی نسخه‌ی جدید اپ -->
+<div id="updateBanner" class="fixed inset-x-0 bottom-0 z-[70] p-4 flex justify-center pointer-events-none" hidden>
+  <div class="pointer-events-auto w-full max-w-md bg-slate-900 text-white rounded-2xl shadow-2xl p-4 flex items-center gap-3 sheet-anim">
+    <i class="fa-solid fa-arrows-rotate text-brand-light text-lg"></i>
+    <div class="flex-1">
+      <p class="text-sm font-extrabold">نسخه‌ی جدید اپ آماده است</p>
+      <p class="text-[11px] font-bold text-slate-300">برای دریافت آخرین تغییرات به‌روزرسانی کنید.</p>
+    </div>
+    <button id="updateDismiss" class="text-slate-400 text-xs px-2 py-1">بعداً</button>
+    <button id="updateBtn" class="bg-brand text-white rounded-xl px-4 h-10 font-black text-xs active:scale-95">به‌روزرسانی</button>
+  </div>
+</div>
+
 <div id="toast" class="fixed bottom-24 inset-x-0 mx-auto w-fit max-w-[90vw] bg-slate-900 text-white px-5 py-3 rounded-full text-sm font-bold shadow-2xl z-[60]" style="animation:toastIn .2s ease" hidden></div>
 
 <script src="/app.js"></script>

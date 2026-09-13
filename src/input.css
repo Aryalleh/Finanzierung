@@ -56,6 +56,8 @@ body,
 
 /* ============ سفارشی‌ها ============ */
 html { font-size: 18px; }
+/* غیرفعال‌کردن کشیدن از بالا برای رفرش (pull-to-refresh) */
+html, body { overscroll-behavior-y: contain; }
 .text-\[9px\]  { font-size: .68rem; }
 .text-\[10px\] { font-size: .74rem; }
 .text-\[11px\] { font-size: .8rem; }
