@@ -1,207 +1,310 @@
 <!doctype html>
 <html lang="fa" dir="rtl">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>💶 مدیریت حقوق ماهانه</title>
-  <meta name="description" content="مدیریت مالی ماهانه با پاکت‌های بودجه: ورودی، خروجی و موجودی هر بخش" />
-  <meta name="theme-color" content="#0f766e" />
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="/icons/icon.svg" />
-  <link rel="stylesheet" href="/styles.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>💶 مدیریت حقوق ماهانه</title>
+<meta name="description" content="مدیریت مالی ماهانه با پاکت‌های بودجه: ورودی، خروجی و موجودی هر بخش">
+<meta name="theme-color" content="#0f766e">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+<link rel="stylesheet" href="/styles.css">
 </head>
-<body>
-  <!-- ============ صفحه‌ی ورود / ثبت‌نام ============ -->
-  <div id="authScreen" class="auth-screen" hidden>
-    <div class="auth-card">
-      <div class="auth-brand">💶</div>
-      <h1 class="auth-title">مدیریت حقوق ماهانه</h1>
-      <p class="auth-sub" id="authSub">برای ادامه وارد شوید</p>
-      <form id="authForm">
-        <div class="field">
-          <label for="authEmail">ایمیل</label>
-          <input id="authEmail" type="email" autocomplete="email" required placeholder="you@example.com" />
-        </div>
-        <div class="field">
-          <label for="authPassword">رمز عبور</label>
-          <input id="authPassword" type="password" autocomplete="current-password" required minlength="8" placeholder="حداقل ۸ کاراکتر" />
-        </div>
-        <p class="auth-error" id="authError" hidden></p>
-        <button type="submit" class="btn btn-primary btn-block" id="authSubmit">ورود</button>
-      </form>
-      <p class="auth-switch">
-        <span id="authSwitchText">حساب ندارید؟</span>
-        <button type="button" class="link-btn" id="authToggle">ثبت‌نام کنید</button>
-      </p>
-    </div>
-  </div>
+<body class="bg-[#f1f5f9] text-ink font-sans antialiased">
 
-  <!-- ============ برنامه (پس از ورود) ============ -->
-  <div id="appScreen" hidden>
-  <header class="app-header">
-    <div class="wrap header-inner">
-      <h1>💶 مدیریت حقوق ماهانه</h1>
-      <div class="header-controls">
-        <label class="month-picker">
-          <span class="visually-hidden">ماه</span>
-          <input type="month" id="monthInput" />
-        </label>
-        <select id="currencySelect" title="واحد پول" aria-label="واحد پول">
-          <option value="EUR">€ یورو</option>
-          <option value="USD">$ دلار</option>
-          <option value="TRY">₺ لیر</option>
-          <option value="IRR">﷼ ریال</option>
-          <option value="IRT">تومان</option>
-        </select>
-        <button id="btnLogout" class="icon-btn" title="خروج" aria-label="خروج">⏻</button>
+<!-- ============ ورود / ثبت‌نام ============ -->
+<div id="authScreen" class="fixed inset-0 z-40 overflow-y-auto no-scrollbar bg-gradient-to-br from-brand via-brand-dark to-slate-900 flex items-center justify-center p-6" hidden>
+  <div class="w-full max-w-sm space-y-8">
+    <div class="text-center space-y-4">
+      <div class="mx-auto w-20 h-20 bg-white/10 backdrop-blur-xl rounded-[28px] flex items-center justify-center shadow-2xl border border-white/20">
+        <div class="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-lg">💰</div>
       </div>
+      <div class="space-y-1">
+        <h1 class="text-3xl font-black text-white tracking-tight">مدیریت حقوق ماهانه</h1>
+        <p class="text-brand-light font-medium text-sm">مدیریت هوشمند حقوق و هزینه‌ها</p>
+      </div>
+    </div>
+    <div class="bg-white rounded-[32px] p-8 shadow-2xl space-y-6 relative overflow-hidden">
+      <div class="absolute top-0 right-0 w-32 h-32 bg-brand/5 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+      <div class="space-y-2 relative">
+        <h2 id="authTitle" class="text-xl font-extrabold text-slate-900">خوش آمدید</h2>
+        <p id="authSubtitle" class="text-slate-500 text-xs font-medium">برای دسترسی به حساب خود وارد شوید.</p>
+      </div>
+      <form id="authForm" class="space-y-4 relative">
+        <div class="space-y-1.5">
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">ایمیل</label>
+          <input id="authEmail" type="email" autocomplete="email" required placeholder="name@example.com" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand transition-all">
+        </div>
+        <div class="space-y-1.5">
+          <div class="flex justify-between items-center mr-1">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">رمز عبور</label>
+            <button type="button" id="forgotBtn" class="text-[10px] font-black text-brand uppercase tracking-widest">فراموشی رمز؟</button>
+          </div>
+          <div class="relative">
+            <input id="authPassword" type="password" autocomplete="current-password" required minlength="8" placeholder="••••••••" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand transition-all">
+            <button type="button" id="togglePw" class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <i class="fa-regular fa-eye"></i>
+            </button>
+          </div>
+        </div>
+        <p id="authError" class="text-xs font-bold text-red-600 bg-red-50 rounded-xl px-3 py-2 text-center" hidden></p>
+        <button id="authSubmit" type="submit" class="w-full h-14 bg-brand hover:bg-brand-dark text-white rounded-2xl font-black text-sm shadow-xl shadow-brand/20 transition-all active:scale-[0.98] mt-2">ورود به حساب کاربری</button>
+      </form>
+      <div class="pt-2 text-center relative">
+        <p class="text-[11px] font-bold text-slate-500">
+          <span id="authSwitchText">حساب کاربری ندارید؟</span>
+          <button type="button" id="authToggle" class="text-brand font-black mr-1">ثبت‌نام کنید</button>
+        </p>
+      </div>
+    </div>
+    <p class="text-center text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">مدیریت حقوق ماهانه</p>
+  </div>
+</div>
+
+<!-- ============ داشبورد ============ -->
+<div id="appScreen" class="max-w-md mx-auto min-h-screen flex flex-col" hidden>
+  <header class="px-5 pt-6 pb-2 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-2xl bg-brand-600 flex items-center justify-center text-white shadow-lg shadow-brand-500/30">
+        <i class="fa-solid fa-wallet text-lg"></i>
+      </div>
+      <div>
+        <p class="text-xs text-muted font-medium">خوش آمدید<span id="userGreet"></span></p>
+        <h1 class="text-base font-bold tracking-tight leading-none">کیف‌پول‌های ماهانه</h1>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="bellBtn" class="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-muted hover:text-ink transition-colors relative">
+        <i class="fa-regular fa-bell"></i>
+      </button>
+      <button id="avatarBtn" class="w-10 h-10 rounded-xl bg-brand/10 text-brand font-black flex items-center justify-center ring-1 ring-slate-100"></button>
     </div>
   </header>
 
-  <main class="wrap">
-    <!-- خلاصه‌ی کل -->
-    <section class="summary" aria-label="خلاصه">
-      <div class="summary-card balance">
-        <span class="label">موجودی کل</span>
-        <strong id="sumBalance" class="value">—</strong>
+  <div class="px-5 pb-2 flex items-center justify-between">
+    <button id="monthBtn" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-slate-100 text-sm font-semibold hover:bg-slate-50 transition-colors">
+      <i class="fa-regular fa-calendar text-muted text-xs"></i>
+      <span id="monthLabel">—</span>
+      <i class="fa-solid fa-chevron-down text-[10px] text-muted"></i>
+    </button>
+    <input id="monthInput" type="month" class="sr-only absolute opacity-0 pointer-events-none w-0 h-0">
+    <button id="currencyBtn" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-slate-100 text-sm font-semibold hover:bg-slate-50 transition-colors">
+      <span id="currencyLabel">﷼ تومان</span>
+      <i class="fa-solid fa-chevron-down text-[10px] text-muted"></i>
+    </button>
+  </div>
+
+  <main class="flex-1 px-5 pb-28 space-y-3">
+    <section class="space-y-2">
+      <div class="bg-white rounded-2xl p-4 border border-slate-100 flex justify-between items-center">
+        <span class="text-xs font-semibold text-muted tracking-tight">موجودی کل</span>
+        <span id="sumBalance" class="text-base font-extrabold text-brand-700 tracking-tighter">—</span>
       </div>
-      <div class="summary-card income">
-        <span class="label">ورودی این ماه</span>
-        <strong id="sumIncome" class="value">—</strong>
+      <div class="bg-white rounded-2xl p-4 border border-slate-100 flex justify-between items-center">
+        <span class="text-xs font-semibold text-muted tracking-tight">ورودی این ماه</span>
+        <span id="sumIncome" class="text-base font-extrabold text-emerald-600 tracking-tighter">—</span>
       </div>
-      <div class="summary-card expense">
-        <span class="label">خروجی این ماه</span>
-        <strong id="sumExpense" class="value">—</strong>
+      <div class="bg-white rounded-2xl p-4 border border-slate-100 flex justify-between items-center">
+        <span class="text-xs font-semibold text-muted tracking-tight">خروجی این ماه</span>
+        <span id="sumExpense" class="text-base font-extrabold text-red-500 tracking-tighter">—</span>
       </div>
     </section>
 
-    <!-- اقدام‌ها -->
-    <section class="actions">
-      <button id="btnDistribute" class="btn btn-primary">💸 تقسیم حقوق</button>
-      <button id="btnAddTx" class="btn">➕ ثبت تراکنش</button>
-      <button id="btnAddPocket" class="btn btn-ghost">🗂️ پاکت جدید</button>
-    </section>
-
-    <!-- پاکت‌ها -->
-    <section aria-label="پاکت‌ها">
-      <h2 class="section-title">پاکت‌ها</h2>
-      <div id="pockets" class="pockets-grid">
-        <div class="empty" id="pocketsEmpty" hidden>هنوز پاکتی نیست.</div>
+    <section class="grid grid-cols-1 gap-3">
+      <button id="btnDistribute" class="bg-brand-700 hover:bg-brand-600 text-white rounded-2xl py-4 flex items-center justify-center gap-3 transition-all shadow-lg shadow-brand-700/20 active:scale-[0.98]">
+        <i class="fa-solid fa-money-bill-transfer text-lg"></i>
+        <span class="text-sm font-bold tracking-tight">تقسیم حقوق ماهانه</span>
+      </button>
+      <div class="grid grid-cols-2 gap-3">
+        <button id="btnAddTx" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl py-3.5 flex items-center justify-center gap-2 transition-all active:scale-[0.98]">
+          <i class="fa-solid fa-plus text-sm text-brand-700"></i>
+          <span class="text-xs font-bold text-ink">تراکنش جدید</span>
+        </button>
+        <button id="btnAddPocket" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl py-3.5 flex items-center justify-center gap-2 transition-all active:scale-[0.98]">
+          <i class="fa-solid fa-folder-plus text-sm text-brand-700"></i>
+          <span class="text-xs font-bold text-ink">پاکت جدید</span>
+        </button>
       </div>
     </section>
 
-    <!-- تراکنش‌های اخیر -->
-    <section aria-label="تراکنش‌های اخیر">
-      <h2 class="section-title">تراکنش‌های اخیر</h2>
-      <ul id="txList" class="tx-list"></ul>
-      <div class="empty" id="txEmpty" hidden>تراکنشی برای این ماه ثبت نشده است.</div>
+    <section class="space-y-4 pt-2">
+      <div class="flex items-center justify-between px-1">
+        <h2 class="text-sm font-extrabold text-ink tracking-tight">پاکت‌های بودجه</h2>
+        <span id="pocketCount" class="text-[10px] font-bold text-muted bg-slate-100 px-2 py-0.5 rounded-full">۰ پاکت</span>
+      </div>
+      <div id="pockets" class="grid grid-cols-1 gap-4"></div>
+      <div id="pocketsEmpty" class="text-center text-xs font-bold text-muted py-8" hidden>هنوز پاکتی نیست. یک پاکت جدید بسازید.</div>
+    </section>
+
+    <section class="space-y-4 pt-4">
+      <div class="flex items-center justify-between px-1">
+        <h2 class="text-sm font-extrabold text-ink tracking-tight">تراکنش‌های اخیر</h2>
+      </div>
+      <div id="txList" class="space-y-2"></div>
+      <div id="txEmpty" class="text-center text-xs font-bold text-muted py-6" hidden>تراکنشی برای این ماه ثبت نشده است.</div>
     </section>
   </main>
 
-  <footer class="app-footer wrap">
-    <span id="offlineBadge" class="badge-offline" hidden>آفلاین</span>
-    <span>ساخته‌شده با Cloudflare Workers · داده‌ها روی D1</span>
-  </footer>
-  </div><!-- /#appScreen -->
+  <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-slate-100 z-20">
+    <div class="max-w-md mx-auto flex items-center justify-around py-2 px-2">
+      <button data-nav="wallet" class="flex flex-col items-center gap-1 py-1.5 px-3 text-brand-600">
+        <i class="fa-solid fa-wallet text-lg"></i><span class="text-[10px] font-semibold">کیف‌پول</span>
+      </button>
+      <button data-nav="reports" class="flex flex-col items-center gap-1 py-1.5 px-3 text-muted hover:text-ink transition-colors">
+        <i class="fa-regular fa-chart-bar text-lg"></i><span class="text-[10px] font-medium">گزارش</span>
+      </button>
+      <button data-nav="tx" class="flex flex-col items-center gap-1 py-1.5 px-3 text-muted hover:text-ink transition-colors">
+        <i class="fa-solid fa-receipt text-lg"></i><span class="text-[10px] font-medium">تراکنش</span>
+      </button>
+      <button data-nav="profile" class="flex flex-col items-center gap-1 py-1.5 px-3 text-muted hover:text-ink transition-colors">
+        <i class="fa-regular fa-user text-lg"></i><span class="text-[10px] font-medium">پروفایل</span>
+      </button>
+    </div>
+  </nav>
+</div>
 
-  <!-- ============ مودال‌ها ============ -->
+<!-- ============ صفحه‌ی تقسیم حقوق ============ -->
+<div id="distributeScreen" class="fixed inset-0 z-40 bg-[#f1f5f9] overflow-y-auto no-scrollbar" hidden>
+  <div class="max-w-md mx-auto min-h-screen flex flex-col bg-white">
+    <header class="px-5 pt-6 pb-4 flex items-center justify-between border-b border-slate-50 sticky top-0 bg-white/80 backdrop-blur-xl z-20">
+      <button id="distBack" class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-muted hover:text-ink active:scale-95 transition-all"><i class="fa-solid fa-arrow-right"></i></button>
+      <h1 class="text-base font-extrabold tracking-tight">تقسیم حقوق ماهانه</h1>
+      <button id="distConfirmTop" class="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand active:scale-95 transition-all"><i class="fa-solid fa-check"></i></button>
+    </header>
+    <main class="flex-1 p-5 space-y-6 overflow-y-auto no-scrollbar pb-32">
+      <section class="space-y-4">
+        <div class="bg-brand-dark/5 p-6 rounded-[32px] border border-brand/10 flex flex-col items-center gap-2">
+          <label class="text-[10px] font-black text-brand uppercase tracking-widest">مبلغ کل حقوق دریافتی</label>
+          <div class="flex items-baseline gap-2">
+            <input id="distAmount" type="text" inputmode="numeric" placeholder="۰" class="w-full bg-transparent border-none text-3xl font-black text-center text-brand focus:ring-0 focus:outline-none tracking-tighter placeholder:text-brand/30">
+            <span id="distCurrency" class="text-sm font-bold text-brand/60">﷼</span>
+          </div>
+          <div class="flex items-center gap-2 text-[11px] font-bold text-muted">
+            تاریخ دریافتی:
+            <input id="distDate" type="date" class="bg-transparent border-none text-[11px] font-bold text-brand focus:ring-0 focus:outline-none p-0">
+          </div>
+        </div>
+      </section>
+      <section class="space-y-3">
+        <div class="flex justify-between items-center px-1">
+          <span class="text-xs font-extrabold text-ink">توزیع بین پاکت‌ها</span>
+          <span id="distTotalBadge" class="text-xs font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">۰٪ انتخاب شده</span>
+        </div>
+        <div id="distBar" class="w-full h-3 bg-slate-100 rounded-full overflow-hidden flex shadow-inner"></div>
+      </section>
+      <section id="distRows" class="space-y-3 pb-4"></section>
+    </main>
+    <div class="fixed bottom-0 inset-x-0 max-w-md mx-auto p-5 bg-gradient-to-t from-white via-white to-transparent pointer-events-none">
+      <button id="distConfirm" class="w-full h-14 bg-brand hover:bg-brand-dark text-white rounded-2xl font-black text-sm shadow-xl shadow-brand/20 transition-all active:scale-[0.98] pointer-events-auto">تأیید و توزیع حقوق</button>
+      <button id="distReset" class="w-full py-3 mt-1 text-[11px] font-bold text-muted hover:text-brand transition-colors pointer-events-auto">بازگشت به درصدهای پیشنهادی</button>
+    </div>
+  </div>
+</div>
 
-  <!-- مودال تراکنش -->
-  <dialog id="txDialog" class="dialog">
-    <form method="dialog" id="txForm">
-      <h3 id="txDialogTitle">ثبت تراکنش</h3>
-      <div class="field">
-        <label>نوع</label>
-        <div class="segmented" role="radiogroup">
-          <label><input type="radio" name="txType" value="expense" checked /> <span>➖ خروجی</span></label>
-          <label><input type="radio" name="txType" value="income" /> <span>➕ ورودی</span></label>
+<!-- ============ مودال تراکنش ============ -->
+<div id="txModal" class="fixed inset-0 z-50 flex items-end justify-center" hidden>
+  <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" data-close></div>
+  <div class="relative w-full max-w-md bg-white rounded-t-[32px] p-6 space-y-5 sheet-anim">
+    <div class="flex items-center justify-between">
+      <h2 id="txModalTitle" class="text-lg font-extrabold text-ink">ثبت تراکنش</h2>
+      <button class="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-muted" data-close><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="txForm" class="space-y-4">
+      <div class="grid grid-cols-2 gap-2 bg-slate-50 p-1 rounded-2xl">
+        <button type="button" data-txtype="expense" class="txtype-btn h-11 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all"><i class="fa-solid fa-minus text-[10px]"></i> خروجی</button>
+        <button type="button" data-txtype="income" class="txtype-btn h-11 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all"><i class="fa-solid fa-plus text-[10px]"></i> ورودی</button>
+      </div>
+      <div class="space-y-1.5">
+        <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">پاکت</label>
+        <select id="txPocket" required class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"></select>
+      </div>
+      <div class="space-y-1.5">
+        <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">مبلغ</label>
+        <input id="txAmount" type="text" inputmode="numeric" required placeholder="۰" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand">
+      </div>
+      <div class="space-y-1.5">
+        <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">توضیح (اختیاری)</label>
+        <input id="txNote" type="text" maxlength="500" placeholder="مثلاً خرید هفتگی" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand">
+      </div>
+      <div class="space-y-1.5">
+        <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">تاریخ</label>
+        <input id="txDate" type="date" required class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand">
+      </div>
+      <button type="submit" class="w-full h-14 bg-brand hover:bg-brand-dark text-white rounded-2xl font-black text-sm shadow-xl shadow-brand/20 transition-all active:scale-[0.98]">ذخیره</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ مودال پاکت ============ -->
+<div id="pocketModal" class="fixed inset-0 z-50 flex items-end justify-center" hidden>
+  <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" data-close></div>
+  <div class="relative w-full max-w-md bg-white rounded-t-[32px] p-6 space-y-5 sheet-anim">
+    <div class="flex items-center justify-between">
+      <h2 id="pocketModalTitle" class="text-lg font-extrabold text-ink">پاکت جدید</h2>
+      <button class="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-muted" data-close><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="pocketForm" class="space-y-4">
+      <input type="hidden" id="pocketId">
+      <div class="flex gap-3">
+        <div class="space-y-1.5">
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">آیکن</label>
+          <input id="pocketEmoji" type="text" maxlength="4" value="💰" class="w-16 h-12 bg-slate-50 border border-slate-100 rounded-2xl text-center text-2xl focus:outline-none focus:ring-2 focus:ring-brand/20">
+        </div>
+        <div class="space-y-1.5 flex-1">
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">نام پاکت</label>
+          <input id="pocketName" type="text" maxlength="80" required placeholder="مثلاً کتاب و آموزش" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand">
         </div>
       </div>
-      <div class="field">
-        <label for="txPocket">پاکت</label>
-        <select id="txPocket" required></select>
+      <div class="flex gap-3">
+        <div class="space-y-1.5 flex-1">
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">حداقل درصد</label>
+          <input id="pocketMin" type="number" min="0" max="100" step="1" value="0" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand">
+        </div>
+        <div class="space-y-1.5 flex-1">
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">حداکثر درصد</label>
+          <input id="pocketMax" type="number" min="0" max="100" step="1" value="0" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand">
+        </div>
       </div>
-      <div class="field">
-        <label for="txAmount">مبلغ</label>
-        <input id="txAmount" type="number" inputmode="decimal" min="0" step="0.01" required placeholder="مثلاً 250" />
-      </div>
-      <div class="field">
-        <label for="txNote">توضیح (اختیاری)</label>
-        <input id="txNote" type="text" maxlength="500" placeholder="مثلاً خرید هفتگی" />
-      </div>
-      <div class="field">
-        <label for="txDate">تاریخ</label>
-        <input id="txDate" type="date" required />
-      </div>
-      <div class="dialog-actions">
-        <button type="button" class="btn btn-ghost" data-close>انصراف</button>
-        <button type="submit" class="btn btn-primary">ذخیره</button>
+      <div class="flex gap-3 pt-1">
+        <button type="button" id="pocketDelete" class="h-14 px-5 bg-red-50 text-red-600 rounded-2xl font-black text-sm active:scale-[0.98] transition-all" hidden><i class="fa-solid fa-trash"></i></button>
+        <button type="submit" class="flex-1 h-14 bg-brand hover:bg-brand-dark text-white rounded-2xl font-black text-sm shadow-xl shadow-brand/20 transition-all active:scale-[0.98]">ذخیره</button>
       </div>
     </form>
-  </dialog>
+  </div>
+</div>
 
-  <!-- مودال تقسیم حقوق -->
-  <dialog id="distDialog" class="dialog">
-    <form method="dialog" id="distForm">
-      <h3>تقسیم حقوق ماهانه</h3>
-      <div class="field">
-        <label for="distAmount">مبلغ کل حقوق</label>
-        <input id="distAmount" type="number" inputmode="decimal" min="0" step="0.01" required placeholder="مثلاً 2500" />
-      </div>
-      <div class="field">
-        <label for="distDate">تاریخ</label>
-        <input id="distDate" type="date" required />
-      </div>
-      <p class="hint">درصد هر پاکت را می‌توانید تنظیم کنید؛ مبلغ به نسبت مجموع درصدها تقسیم می‌شود.</p>
-      <div id="distRows" class="dist-rows"></div>
-      <div class="dist-total">
-        مجموع درصد: <strong id="distTotalPct">۰٪</strong>
-        <button type="button" id="distReset" class="link-btn">بازنشانی به پیش‌فرض</button>
-      </div>
-      <div class="dialog-actions">
-        <button type="button" class="btn btn-ghost" data-close>انصراف</button>
-        <button type="submit" class="btn btn-primary">تقسیم و ثبت ورودی</button>
-      </div>
-    </form>
-  </dialog>
+<!-- ============ منوها و توست ============ -->
+<div id="currencyMenu" class="fixed inset-0 z-50 flex items-end justify-center" hidden>
+  <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" data-close></div>
+  <div class="relative w-full max-w-md bg-white rounded-t-[32px] p-6 space-y-2 sheet-anim">
+    <h2 class="text-lg font-extrabold text-ink mb-2">واحد پول</h2>
+    <div id="currencyOptions" class="space-y-2"></div>
+  </div>
+</div>
 
-  <!-- مودال پاکت -->
-  <dialog id="pocketDialog" class="dialog">
-    <form method="dialog" id="pocketForm">
-      <h3 id="pocketDialogTitle">پاکت جدید</h3>
-      <input type="hidden" id="pocketId" />
-      <div class="field-row">
-        <div class="field field-emoji">
-          <label for="pocketEmoji">آیکن</label>
-          <input id="pocketEmoji" type="text" maxlength="4" value="💰" />
-        </div>
-        <div class="field field-grow">
-          <label for="pocketName">نام</label>
-          <input id="pocketName" type="text" maxlength="80" required placeholder="مثلاً کتاب و آموزش" />
-        </div>
+<div id="profileMenu" class="fixed inset-0 z-50 flex items-end justify-center" hidden>
+  <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" data-close></div>
+  <div class="relative w-full max-w-md bg-white rounded-t-[32px] p-6 space-y-4 sheet-anim">
+    <div class="flex items-center gap-3">
+      <div id="profileAvatar" class="w-12 h-12 rounded-2xl bg-brand/10 text-brand font-black flex items-center justify-center text-lg"></div>
+      <div>
+        <p class="text-sm font-extrabold text-ink">حساب کاربری</p>
+        <p id="profileEmail" class="text-xs font-bold text-muted"></p>
       </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="pocketMin">حداقل درصد</label>
-          <input id="pocketMin" type="number" min="0" max="100" step="1" value="0" />
-        </div>
-        <div class="field">
-          <label for="pocketMax">حداکثر درصد</label>
-          <input id="pocketMax" type="number" min="0" max="100" step="1" value="0" />
-        </div>
-      </div>
-      <div class="dialog-actions">
-        <button type="button" id="pocketDelete" class="btn btn-danger" hidden>حذف</button>
-        <span class="spacer"></span>
-        <button type="button" class="btn btn-ghost" data-close>انصراف</button>
-        <button type="submit" class="btn btn-primary">ذخیره</button>
-      </div>
-    </form>
-  </dialog>
+    </div>
+    <button id="logoutBtn" class="w-full h-14 bg-red-50 text-red-600 rounded-2xl font-black text-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+      <i class="fa-solid fa-arrow-right-from-bracket"></i> خروج از حساب
+    </button>
+  </div>
+</div>
 
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<div id="toast" class="fixed bottom-24 inset-x-0 mx-auto w-fit max-w-[90vw] bg-slate-900 text-white px-5 py-3 rounded-full text-sm font-bold shadow-2xl z-[60]" style="animation:toastIn .2s ease" hidden></div>
 
-  <script src="/app.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>

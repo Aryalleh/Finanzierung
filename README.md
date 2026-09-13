@@ -44,10 +44,12 @@
 
 ```
 ├── src/worker.js            ← Cloudflare Worker: API + سرو فایل‌های ثابت
+├── src/input.css            ← ورودی Tailwind (کامپایل می‌شود به public/styles.css)
+├── tailwind.config.js       ← پیکربندی Tailwind (رنگ‌های برند، فونت)
 ├── public/                  ← رابط کاربری PWA (استاتیک)
 │   ├── index.html
 │   ├── app.js
-│   ├── styles.css
+│   ├── styles.css           ← خروجی کامپایل‌شده‌ی Tailwind (با npm run build:css)
 │   ├── manifest.webmanifest
 │   ├── sw.js                ← Service Worker (آفلاین)
 │   └── icons/
@@ -57,6 +59,8 @@
 ```
 
 داده‌ها در **Cloudflare D1** (پایگاه‌داده SQLite) ذخیره می‌شوند. Worker در اولین درخواست، جدول‌ها را در صورت نبود می‌سازد. پاکت‌های پیش‌فرض هنگام **ثبت‌نام هر کاربر** برای همان کاربر ساخته می‌شوند.
+
+رابط کاربری با **Tailwind CSS** ساخته شده و به یک فایل استاتیک کامپایل می‌شود (بدون CDN زمان‌اجرا). آیکن‌ها از Font Awesome و فونت از Vazirmatn (Google Fonts) بارگذاری می‌شوند. اسکریپت‌های `dev` و `deploy` قبل از اجرا، CSS را به‌صورت خودکار می‌سازند؛ برای ساخت دستی: `npm run build:css` (یا `npm run watch:css` هنگام توسعه).
 
 ## راه‌اندازی و انتشار
 

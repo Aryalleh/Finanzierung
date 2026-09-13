@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---- سفارشی‌ها ---- */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+[hidden] { display: none !important; }
+
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
+
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes sheetIn { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+.sheet-anim { animation: sheetIn .18s ease; }
+.toast-anim { animation: toastIn .2s ease; }

@@ -5,13 +5,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "build:css": "tailwindcss -i ./src/input.css -o ./public/styles.css --minify",
+    "watch:css": "tailwindcss -i ./src/input.css -o ./public/styles.css --watch",
+    "dev": "npm run build:css && wrangler dev",
+    "deploy": "npm run build:css && wrangler deploy",
     "db:create": "wrangler d1 create finanzierung",
     "db:init": "wrangler d1 execute finanzierung --remote --file=./migrations/0001_init.sql",
     "db:init:local": "wrangler d1 execute finanzierung --local --file=./migrations/0001_init.sql"
   },
   "devDependencies": {
+    "tailwindcss": "^3.4.17",
     "wrangler": "^3.90.0"
   }
 }

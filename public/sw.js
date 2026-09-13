@@ -1,5 +1,5 @@
 /* Service Worker — کش پوسته‌ی برنامه برای کار در حالت آفلاین */
-const CACHE = "finanzierung-v1";
+const CACHE = "finanzierung-v2";
 const SHELL = [
   "/",
   "/index.html",
