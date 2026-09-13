@@ -43,19 +43,77 @@ function monthLabel(m) { try { const [y, mo] = m.split("-").map(Number); return 
 function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function personName(o) { return o.name || o.display_name || (o.username || o.telegram_username ? "@" + (o.username || o.telegram_username) : null) || o.email || "کاربر"; }
 
+/* ---- صف آفلاین ---- */
+const QKEY = "fin_queue";
+function loadQueue() { try { return JSON.parse(localStorage.getItem(QKEY) || "[]"); } catch { return []; } }
+function saveQueue(q) { try { localStorage.setItem(QKEY, JSON.stringify(q)); } catch {} }
+function enqueue(item) { const q = loadQueue(); q.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 7), ...item }); saveQueue(q); }
+function queueCount() { return loadQueue().length; }
+
 /* ---- API ---- */
 class AuthError extends Error {}
-async function api(path, options) {
-  const res = await fetch("/api" + path, { headers: { "content-type": "application/json" }, credentials: "same-origin", ...options });
+async function api(path, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  // آفلاین + نوشتن → در صف بگذار و بعداً همگام کن
+  if (method !== "GET" && !path.startsWith("/auth/") && !navigator.onLine) {
+    enqueue({ method, path, body: options.body || null });
+    updateSyncUI();
+    return { queued: true };
+  }
+  let res;
+  try {
+    res = await fetch("/api" + path, { headers: { "content-type": "application/json" }, credentials: "same-origin", ...options });
+  } catch (e) {
+    // خطای شبکه: نوشتن‌ها را صف کن، خواندن‌ها خطا بده
+    if (method !== "GET" && !path.startsWith("/auth/")) { enqueue({ method, path, body: options.body || null }); updateSyncUI(); return { queued: true }; }
+    throw new Error("آفلاین — به اینترنت وصل نیستید");
+  }
   if (res.status === 401 && !path.startsWith("/auth/")) throw new AuthError("نیازمند ورود");
   if (!res.ok) {
     let m = "خطا در ارتباط با سرور", detail = "";
     try { const j = await res.json(); m = j.error || m; detail = j.detail || ""; } catch {}
+    if (res.status === 503) throw new Error("آفلاین — داده‌ی ذخیره‌شده نمایش داده می‌شود");
     if (detail) { console.error("API error", path, res.status, detail); m = m + " — " + detail; }
     const e = new Error(m); e.status = res.status; throw e;
   }
   return res.status === 204 ? null : res.json();
 }
+
+/* ---- همگام‌سازی صف با سرور ---- */
+let flushing = false;
+async function flushQueue() {
+  if (flushing || !navigator.onLine) return;
+  flushing = true;
+  try {
+    let q = loadQueue();
+    while (q.length) {
+      const item = q[0];
+      let res;
+      try {
+        res = await fetch("/api" + item.path, { method: item.method, headers: { "content-type": "application/json" }, credentials: "same-origin", body: item.body || undefined });
+      } catch { break; } // هنوز آفلاین → بعداً دوباره تلاش کن
+      if (!res.ok && res.status >= 500) break; // خطای سرور → بعداً
+      q.shift(); saveQueue(q); // موفق یا خطای ۴xx (غیرقابل‌تکرار) → از صف بردار
+    }
+  } finally { flushing = false; }
+  updateSyncUI();
+  if (queueCount() === 0) { toast("همگام‌سازی شد ✅"); refresh(); }
+}
+function updateSyncUI() {
+  const el = $("#syncBadge"); if (!el) return;
+  const n = queueCount();
+  if (!navigator.onLine) {
+    el.hidden = false;
+    el.className = "text-[10px] font-black px-2 py-1 rounded-full bg-red-50 text-red-600 flex items-center gap-1";
+    el.innerHTML = `<i class="fa-solid fa-cloud-arrow-up"></i> ${n ? faInt(n) + " در صف" : "آفلاین"}`;
+  } else if (n > 0) {
+    el.hidden = false;
+    el.className = "text-[10px] font-black px-2 py-1 rounded-full bg-amber-50 text-amber-600 flex items-center gap-1";
+    el.innerHTML = `<i class="fa-solid fa-rotate"></i> ${faInt(n)} در حال همگام‌سازی`;
+  } else { el.hidden = true; }
+}
+window.addEventListener("online", () => { updateSyncUI(); flushQueue(); });
+window.addEventListener("offline", updateSyncUI);
 
 /* ---- توست ---- */
 let toastTimer;
@@ -185,7 +243,7 @@ $("#txForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const body = { pocket_id: Number($("#txPocket").value), type: txType, amount: parseNum($("#txAmount").value), note: $("#txNote").value.trim(), occurred_on: $("#txDate").value };
   if (!(body.amount >= 0)) return toast("مبلغ نامعتبر است");
-  try { await api("/transactions", { method: "POST", body: JSON.stringify(body) }); closeModal("#txModal"); toast("ثبت شد ✅"); refresh(); }
+  try { const r = await api("/transactions", { method: "POST", body: JSON.stringify(body) }); closeModal("#txModal"); toast(r?.queued ? "آفلاین: ثبت شد، بعداً همگام می‌شود ⏳" : "ثبت شد ✅"); refresh(); }
   catch (err) { toast(err.message); }
 });
 
@@ -204,7 +262,9 @@ function openPocket(pocket = null) {
   ["#pocketEmoji", "#pocketName", "#pocketMin", "#pocketMax", "#pocketKind"].forEach((s) => ($(s).disabled = !isOwner));
   $("#pocketDelete").hidden = !pocket || !isOwner;
   $("#pocketOwnerActions").hidden = !isOwner;
-  $("#pocketShare").hidden = !(pocket && isOwner);
+  // بخش اعضا برای هر پاکت موجود نمایش داده می‌شود (سهم هرکس)؛ افزودن عضو فقط برای مالک
+  $("#pocketShare").hidden = !pocket;
+  $("#shareAddRow").hidden = !(pocket && isOwner);
   $("#pocketLeave").hidden = !(pocket && !isOwner);
   if (pocket) loadMembers(pocket.id, isOwner);
   openModal("#pocketModal");
@@ -215,10 +275,21 @@ async function loadMembers(pocketId, isOwner) {
     $("#pocketMembers").innerHTML = members.map((m) => {
       const name = personName(m);
       const canRemove = isOwner && m.role !== "owner";
-      const roleTag = m.role === "owner" ? `<span class="text-[9px] font-black text-brand bg-brand/10 px-2 py-0.5 rounded-full">مالک</span>` : "";
-      return `<div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2">
-        <span class="text-xs font-bold text-ink flex items-center gap-2">${escapeHtml(name)} ${roleTag}</span>
-        ${canRemove ? `<button class="text-red-400 hover:text-red-600 text-xs" data-remove-member="${m.id}"><i class="fa-solid fa-user-minus"></i></button>` : ""}
+      const roleTag = m.role === "owner" ? `<span class="text-[9px] font-black text-brand bg-brand/10 px-1.5 py-0.5 rounded-full">مالک</span>` : "";
+      const avatar = m.telegram_photo_url
+        ? `<img src="${escapeHtml(m.telegram_photo_url)}" class="w-8 h-8 rounded-lg object-cover" referrerpolicy="no-referrer">`
+        : `<div class="w-8 h-8 rounded-lg bg-brand/10 text-brand font-black flex items-center justify-center text-xs">${escapeHtml((name.replace(/^@/, "")[0] || "؟").toUpperCase())}</div>`;
+      const netClass = m.net < 0 ? "text-red-500" : "text-brand-700";
+      return `<div class="bg-slate-50 rounded-xl px-3 py-2.5 space-y-1.5">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-ink flex items-center gap-2">${avatar}<span>${escapeHtml(name)}${m.is_me ? " (شما)" : ""}</span> ${roleTag}</span>
+          ${canRemove ? `<button class="text-red-400 hover:text-red-600 text-xs" data-remove-member="${m.id}"><i class="fa-solid fa-user-minus"></i></button>` : ""}
+        </div>
+        <div class="flex items-center justify-between text-[10px] font-bold pr-10">
+          <span class="text-emerald-600">ورودی ${fmtSigned(m.income, "+")}</span>
+          <span class="text-red-500">خروجی ${fmtSigned(m.expense, "−")}</span>
+          <span class="${netClass}">سهم خالص ${fmtNum(m.net)}</span>
+        </div>
       </div>`;
     }).join("");
   } catch (err) { $("#pocketMembers").innerHTML = ""; }
@@ -305,7 +376,7 @@ async function doDistribute() {
   if (!(amount > 0)) return toast("مبلغ حقوق را وارد کنید");
   const allocations = state.pockets.map((p) => ({ pocket_id: p.id, percent: distAlloc[p.id] || 0 })).filter((a) => a.percent > 0);
   if (!allocations.length) return toast("حداقل یک درصد را وارد کنید");
-  try { await api("/distribute", { method: "POST", body: JSON.stringify({ amount, currency: state.currency, occurred_on: $("#distDate").value, allocations }) }); $("#distributeScreen").hidden = true; toast("حقوق تقسیم شد 💸"); refresh(); }
+  try { const r = await api("/distribute", { method: "POST", body: JSON.stringify({ amount, currency: state.currency, occurred_on: $("#distDate").value, allocations }) }); $("#distributeScreen").hidden = true; toast(r?.queued ? "آفلاین: ثبت شد، بعداً همگام می‌شود ⏳" : "حقوق تقسیم شد 💸"); refresh(); }
   catch (err) { toast(err.message); }
 }
 $("#distConfirm").addEventListener("click", doDistribute);
@@ -642,7 +713,8 @@ function showApp() {
   const name = userName(state.user);
   $("#userGreet").textContent = name ? "، " + name.replace(/^@/, "").split("@")[0] : "";
   $("#avatarBtn").innerHTML = avatarInner(state.user);
-  applyMonth(); applyCurrencyLabel(); refresh();
+  applyMonth(); applyCurrencyLabel(); updateSyncUI(); refresh();
+  if (navigator.onLine && queueCount() > 0) flushQueue();
 }
 $("#authToggle").addEventListener("click", () => setAuthMode(authMode === "login" ? "register" : "login"));
 $("#togglePw").addEventListener("click", () => {

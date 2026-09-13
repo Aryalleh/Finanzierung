@@ -680,10 +680,15 @@ async function handleData(req, db, uid, segments) {
     if (id && sub === "members" && method === "GET") {
       if (!(await isMember(db, id, uid))) return notFound("پاکت یافت نشد");
       const { results } = await db.prepare(
-        `SELECT u.id, u.display_name, u.email, u.telegram_username, pm.role
-         FROM pocket_members pm JOIN users u ON u.id=pm.user_id WHERE pm.pocket_id=? ORDER BY pm.role DESC, pm.created_at`
+        `SELECT u.id, u.display_name, u.email, u.telegram_username, u.telegram_photo_url, pm.role,
+                COALESCE(SUM(CASE WHEN t.type='income'  THEN t.amount END),0) AS income,
+                COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount END),0) AS expense
+         FROM pocket_members pm
+         JOIN users u ON u.id=pm.user_id
+         LEFT JOIN transactions t ON t.pocket_id=pm.pocket_id AND t.user_id=pm.user_id
+         WHERE pm.pocket_id=? GROUP BY u.id ORDER BY pm.role DESC, pm.created_at`
       ).bind(id).all();
-      return json({ members: results });
+      return json({ members: results.map((m) => ({ ...m, net: m.income - m.expense, is_me: m.id === uid })) });
     }
 
     if (id && sub === "share" && method === "POST") {

@@ -119,6 +119,7 @@
       </div>
     </div>
     <div class="flex items-center gap-2">
+      <span id="syncBadge" class="text-[10px] font-black px-2 py-1 rounded-full bg-amber-50 text-amber-600 flex items-center gap-1" hidden></span>
       <button id="bellBtn" class="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-muted hover:text-ink transition-colors relative">
         <i class="fa-regular fa-bell"></i>
       </button>
@@ -333,11 +334,11 @@
       </div>
     </form>
 
-    <!-- اشتراک‌گذاری (فقط مالک) -->
+    <!-- اعضا و سهم هرکس -->
     <div id="pocketShare" class="space-y-3 pt-4 border-t border-slate-100" hidden>
-      <h3 class="text-sm font-extrabold text-ink flex items-center gap-2"><i class="fa-solid fa-user-group text-brand text-xs"></i> اعضای پاکت مشترک</h3>
+      <h3 class="text-sm font-extrabold text-ink flex items-center gap-2"><i class="fa-solid fa-user-group text-brand text-xs"></i> اعضا و سهم هرکس</h3>
       <div id="pocketMembers" class="space-y-2"></div>
-      <div class="flex gap-2">
+      <div id="shareAddRow" class="flex gap-2">
         <input id="shareIdentifier" type="text" placeholder="ایمیل یا @یوزرنیم تلگرام" class="flex-1 h-11 bg-slate-50 border border-slate-100 rounded-xl px-3 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand/20" dir="ltr">
         <button type="button" id="shareAddBtn" class="h-11 px-4 bg-brand text-white rounded-xl font-black text-xs active:scale-[0.98]">افزودن</button>
       </div>
