@@ -407,6 +407,11 @@ function setLoanDir(dir) {
     const a = b.dataset.loandir === dir;
     b.className = "loandir-btn h-11 rounded-xl text-xs font-black transition-all " + (a ? "bg-brand text-white shadow" : "text-muted");
   });
+  $("#loanSourceRow").hidden = dir !== "lent"; // فقط هنگام «قرض دادم» انتخاب پاکت مبدأ
+}
+function populateLoanSource(pockets) {
+  $("#loanSource").innerHTML = `<option value="">همه‌ی پاکت‌ها (موجودی کل)</option>` +
+    (pockets || []).filter((p) => p.is_owner).map((p) => `<option value="${p.id}">${escapeHtml(p.emoji)} ${escapeHtml(p.name)}</option>`).join("");
 }
 async function openLoans() {
   $("#loansScreen").hidden = false;
@@ -468,13 +473,20 @@ $("#loansBack").addEventListener("click", () => ($("#loansScreen").hidden = true
 $("#loanAddBtn").addEventListener("click", () => {
   setLoanDir("lent");
   $("#loanCurrency").innerHTML = CURRENCIES.map((c) => `<option value="${c.code}" ${c.code === state.currency ? "selected" : ""}>${c.sym} ${c.label}</option>`).join("");
+  populateLoanSource(state.pockets);
   $("#loanIdentifier").value = ""; $("#loanAmount").value = ""; $("#loanNote").value = "";
   openModal("#loanModal");
+});
+$("#loanCurrency").addEventListener("change", async () => {
+  const c = $("#loanCurrency").value;
+  if (c === state.currency) return populateLoanSource(state.pockets);
+  try { const r = await api(`/pockets?currency=${c}`); populateLoanSource(r.pockets); } catch { populateLoanSource([]); }
 });
 $$("#loanForm .loandir-btn").forEach((b) => b.addEventListener("click", () => setLoanDir(b.dataset.loandir)));
 $("#loanForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const body = { identifier: $("#loanIdentifier").value.trim(), direction: loanDir, amount: parseNum($("#loanAmount").value), currency: $("#loanCurrency").value, note: $("#loanNote").value.trim() };
+  if (loanDir === "lent") body.source_pocket_id = $("#loanSource").value || null;
   if (!body.identifier) return toast("طرف مقابل را وارد کنید");
   if (!(body.amount > 0)) return toast("مبلغ نامعتبر است");
   try { await api("/loans", { method: "POST", body: JSON.stringify(body) }); closeModal("#loanModal"); toast("قرض ثبت شد ✅"); loadLoans(); }

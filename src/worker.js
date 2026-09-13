@@ -117,14 +117,14 @@ async function ensureSchema(db) {
     db.prepare(`CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT, pocket_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
       type TEXT NOT NULL CHECK (type IN ('income','expense')), amount REAL NOT NULL CHECK (amount >= 0),
-      note TEXT NOT NULL DEFAULT '', currency TEXT NOT NULL DEFAULT 'IRT',
+      note TEXT NOT NULL DEFAULT '', currency TEXT NOT NULL DEFAULT 'IRT', loan_id INTEGER,
       occurred_on TEXT NOT NULL DEFAULT (date('now')), created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (pocket_id) REFERENCES pockets(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS loans (
       id INTEGER PRIMARY KEY AUTOINCREMENT, lender_id INTEGER NOT NULL, borrower_id INTEGER NOT NULL,
       amount REAL NOT NULL CHECK (amount > 0), repaid REAL NOT NULL DEFAULT 0,
-      currency TEXT NOT NULL DEFAULT 'IRT', note TEXT NOT NULL DEFAULT '',
+      currency TEXT NOT NULL DEFAULT 'IRT', note TEXT NOT NULL DEFAULT '', source_pocket_id INTEGER,
       status TEXT NOT NULL DEFAULT 'pending', created_by INTEGER NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (lender_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -152,6 +152,8 @@ async function ensureSchema(db) {
     "ALTER TABLE pockets ADD COLUMN kind TEXT NOT NULL DEFAULT 'discretionary'",
     "ALTER TABLE transactions ADD COLUMN user_id INTEGER",
     "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'IRT'",
+    "ALTER TABLE transactions ADD COLUMN loan_id INTEGER",
+    "ALTER TABLE loans ADD COLUMN source_pocket_id INTEGER",
   ];
   for (const sql of alters) { try { await db.prepare(sql).run(); } catch (e) { /* ستون از قبل هست */ } }
 
@@ -251,7 +253,7 @@ async function aggregateMonth(db, uid, currency, month) {
        COALESCE(SUM(CASE WHEN t.type='income'  AND t.occurred_on>=?2 AND t.occurred_on<?3 THEN t.amount END),0) AS inc,
        COALESCE(SUM(CASE WHEN t.type='expense' AND t.occurred_on>=?2 AND t.occurred_on<?3 THEN t.amount END),0) AS exp
      FROM pockets p JOIN pocket_members pm ON pm.pocket_id=p.id AND pm.user_id=?1
-     LEFT JOIN transactions t ON t.pocket_id=p.id
+     LEFT JOIN transactions t ON t.pocket_id=p.id AND t.loan_id IS NULL
      WHERE p.currency=?4 GROUP BY p.id`
   ).bind(uid, start, end, currency).all();
 
@@ -329,9 +331,13 @@ async function computeScore(db, uid, currency, month, withMomentum = true) {
   const target = agg.disc_budget_rate > 0 ? agg.disc_budget_rate : 0.15;
   const life = lifestyleScore(discRate, target);
 
-  // قرض: دادن مثبت، گرفتن منفی
-  const loanFactor = income > 0 ? (agg.lent - agg.borrowed) / income : 0;
-  const loanAdj = clamp(loanFactor * 20, -10, 5);
+  // قرض: گرفتن همیشه منفی؛ دادن فقط وقتی مثبت است که توانِ مالی داشته باشد
+  // (اگر قرض داد ولی در تأمین هزینه‌های خودش کم آورد، پاداشی نمی‌گیرد)
+  let loanAdj = 0;
+  if (agg.borrowed > 0 && income > 0) loanAdj -= clamp((agg.borrowed / income) * 20, 0, 10);
+  const surplusAfterLoans = income - agg.essential_out - agg.discretionary_out - Math.max(0, agg.saved) - agg.lent;
+  const affordable = agg.borrowed === 0 && liqRatio >= 1 && surplusAfterLoans >= 0;
+  if (agg.lent > 0 && income > 0 && affordable) loanAdj += clamp((agg.lent / income) * 20, 0, 5);
 
   let raw = budgetScore + savingsTotal + liq + stab + life + loanAdj;
   let final = clamp(raw, 0, 100);
@@ -576,6 +582,16 @@ async function handleAuth(req, env, db, segments) {
 }
 
 /* ---------- عضویت پاکت ---------- */
+// تراکنش نشان‌دارِ قرض روی پاکت مبدأِ وام‌دهنده (فقط وقتی پاکت مشخص انتخاب شده)
+async function loanPocketTx(db, loan, type, amount) {
+  if (!loan.source_pocket_id || amount <= 0) return;
+  const p = await db.prepare(`SELECT id FROM pockets WHERE id=?`).bind(loan.source_pocket_id).first();
+  if (!p) return;
+  const note = type === "expense" ? "قرض داده‌شده" : "بازپرداخت قرض";
+  await db.prepare(
+    `INSERT INTO transactions (pocket_id, user_id, type, amount, note, currency, loan_id, occurred_on) VALUES (?,?,?,?,?,?,?, date('now'))`
+  ).bind(loan.source_pocket_id, loan.lender_id, type, amount, note, loan.currency, loan.id).run();
+}
 async function isMember(db, pocketId, userId) {
   return !!(await db.prepare(`SELECT 1 FROM pocket_members WHERE pocket_id=? AND user_id=?`).bind(pocketId, userId).first());
 }
@@ -760,8 +776,10 @@ async function handleData(req, db, uid, segments) {
        WHERE p.currency=?4`
     ).bind(uid, start, end, currency).first();
     // اثر قرض روی موجودی: قرضِ داده‌شده‌ی وصول‌نشده از موجودی کم، قرضِ گرفته‌شده اضافه می‌شود
+    // قرض‌هایی که پاکت مبدأ دارند از قبل در موجودی پاکت‌ها اعمال شده‌اند؛
+    // فقط قرض‌های «از موجودی کل» (بدون پاکت) اینجا کم/زیاد می‌شوند.
     const loan = await db.prepare(
-      `SELECT COALESCE(SUM(CASE WHEN lender_id=?1 THEN amount-repaid END),0) AS lent_out,
+      `SELECT COALESCE(SUM(CASE WHEN lender_id=?1 AND source_pocket_id IS NULL THEN amount-repaid END),0) AS lent_out,
               COALESCE(SUM(CASE WHEN borrower_id=?1 THEN amount-repaid END),0) AS borrowed_out
        FROM loans WHERE currency=?2 AND status='active'`
     ).bind(uid, currency).first();
@@ -889,8 +907,15 @@ async function handleData(req, db, uid, segments) {
       const lender = direction === "lent" ? uid : other.id;
       const borrower = direction === "lent" ? other.id : uid;
       const note = (b.note || "").toString().slice(0, 300);
-      const res = await db.prepare(`INSERT INTO loans (lender_id, borrower_id, amount, currency, note, status, created_by) VALUES (?,?,?,?,?, 'pending', ?)`)
-        .bind(lender, borrower, amount, currency, note, uid).run();
+      // پاکت مبدأ فقط وقتی معنی دارد که خودم وام‌دهنده باشم (قرض دادم)؛ null یعنی «از موجودی کل»
+      let sourcePocket = null;
+      if (direction === "lent" && b.source_pocket_id) {
+        const p = await db.prepare(`SELECT id FROM pockets WHERE id=? AND owner_id=? AND currency=?`).bind(num(b.source_pocket_id), uid, currency).first();
+        if (!p) return badRequest("پاکت مبدأ نامعتبر است");
+        sourcePocket = p.id;
+      }
+      const res = await db.prepare(`INSERT INTO loans (lender_id, borrower_id, amount, currency, note, source_pocket_id, status, created_by) VALUES (?,?,?,?,?,?, 'pending', ?)`)
+        .bind(lender, borrower, amount, currency, note, sourcePocket, uid).run();
       return json({ id: res.meta.last_row_id }, 201);
     }
 
@@ -901,6 +926,8 @@ async function handleData(req, db, uid, segments) {
       if (l.status !== "pending" || l.created_by === uid) return badRequest("این قرض قابل تأیید نیست");
       const status = b.accept ? "active" : "declined";
       await db.prepare(`UPDATE loans SET status=?, updated_at=datetime('now') WHERE id=?`).bind(status, id).run();
+      // با فعال‌شدن، مبلغ از پاکت مبدأِ وام‌دهنده کم می‌شود (اگر پاکت انتخاب شده بود)
+      if (status === "active") await loanPocketTx(db, l, "expense", l.amount);
       return json({ ok: true, status });
     }
 
@@ -912,8 +939,11 @@ async function handleData(req, db, uid, segments) {
       if (l.status !== "active") return badRequest("فقط قرض فعال قابل بازپرداخت است");
       if (!Number.isFinite(amount) || amount <= 0) return badRequest("مبلغ نامعتبر است");
       const repaid = Math.min(l.amount, l.repaid + amount);
+      const delta = repaid - l.repaid;
       const status = repaid >= l.amount ? "settled" : "active";
       await db.prepare(`UPDATE loans SET repaid=?, status=?, updated_at=datetime('now') WHERE id=?`).bind(repaid, status, id).run();
+      // بازپرداخت به پاکت مبدأِ وام‌دهنده برمی‌گردد (اگر پاکت انتخاب شده بود)
+      await loanPocketTx(db, l, "income", delta);
       return json({ ok: true, repaid, status });
     }
 

@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   amount      REAL NOT NULL CHECK (amount >= 0),
   note        TEXT NOT NULL DEFAULT '',
   currency    TEXT NOT NULL DEFAULT 'IRT',
+  loan_id     INTEGER,                          -- تراکنش مرتبط با قرض (از نمره‌دهی حذف می‌شود)
   occurred_on TEXT NOT NULL DEFAULT (date('now')),
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (pocket_id) REFERENCES pockets(id) ON DELETE CASCADE,
@@ -80,6 +81,7 @@ CREATE TABLE IF NOT EXISTS loans (
   repaid      REAL NOT NULL DEFAULT 0,
   currency    TEXT NOT NULL DEFAULT 'IRT',
   note        TEXT NOT NULL DEFAULT '',
+  source_pocket_id INTEGER,                    -- پاکت مبدأِ وام‌دهنده (null = از موجودی کل)
   status      TEXT NOT NULL DEFAULT 'pending', -- pending | active | settled | declined
   created_by  INTEGER NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
