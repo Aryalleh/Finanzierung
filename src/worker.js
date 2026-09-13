@@ -529,13 +529,19 @@ async function handleAuth(req, env, db, segments) {
       const expires = new Date(Date.now() + LOGIN_REQUEST_TTL_MIN * 60000).toISOString();
       await db.prepare(`DELETE FROM login_requests WHERE user_id = ? AND status='pending'`).bind(u.id).run();
       await db.prepare(`INSERT INTO login_requests (id, user_id, expires_at) VALUES (?,?,?)`).bind(reqToken, u.id, expires).run();
+      let sent = false;
       if (token) {
-        await sendTelegramMessage(token, u.telegram_chat_id,
+        sent = await sendTelegramMessage(token, u.telegram_chat_id,
           `درخواست ورود به «مدیریت حقوق ماهانه»\n\nاگر شما هستید تأیید کنید، در غیر این صورت رد کنید. (اعتبار ${LOGIN_REQUEST_TTL_MIN} دقیقه)`,
           { inline_keyboard: [[
             { text: "✅ تأیید ورود", callback_data: "approve:" + reqToken },
             { text: "❌ رد", callback_data: "deny:" + reqToken },
           ]] });
+      }
+      // اگر پیام ارسال نشد (توکن نبود یا کاربر ربات را Start نکرده) صادقانه خطا بده
+      if (!sent && !devMode) {
+        await db.prepare(`DELETE FROM login_requests WHERE id=?`).bind(reqToken).run();
+        return json({ error: token ? "ارسال پیام تلگرام ناموفق بود. ابتدا ربات را در تلگرام باز کرده و Start را بزنید، سپس دوباره تلاش کنید." : "ورود تلگرام روی سرور پیکربندی نشده است." }, 400);
       }
       const out = { ok: true, token: reqToken };
       if (devMode) out.dev = true; // در حالت توسعه می‌توان مستقیم تأیید کرد
@@ -957,11 +963,27 @@ async function handleTelegramWebhook(req, env, db) {
   const secret = env.TELEGRAM_WEBHOOK_SECRET;
   if (secret && req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== secret) return unauthorized("secret نامعتبر");
   const update = await req.json().catch(() => ({}));
+  const token = env.TELEGRAM_BOT_TOKEN;
+
+  // پیام‌ها (به‌ویژه /start): حساب تلگرام را وصل و پاسخ بده
+  const msg = update.message;
+  if (msg && msg.from) {
+    const from = msg.from;
+    await upsertTelegramUser(db, { id: from.id, username: from.username, first_name: from.first_name, last_name: from.last_name }, req);
+    if (token) {
+      const appUrl = new URL(req.url).origin;
+      const text = (msg.text || "").startsWith("/start")
+        ? `به «مدیریت حقوق ماهانه» خوش آمدید ✅\n\nحساب تلگرام شما وصل شد. برای ورود، اپ را باز کنید:\n${appUrl}`
+        : `حساب شما وصل است ✅ برای ورود اپ را باز کنید:\n${appUrl}`;
+      await sendTelegramMessage(token, msg.chat.id, text);
+    }
+    return json({ ok: true });
+  }
+
   const cq = update.callback_query;
   if (!cq || !cq.data) return json({ ok: true });
   const [action, reqToken] = cq.data.split(":");
   const fromId = String(cq.from?.id || "");
-  const token = env.TELEGRAM_BOT_TOKEN;
   if (action === "approve" || action === "deny") {
     const lr = await db.prepare(`SELECT lr.*, u.telegram_id FROM login_requests lr JOIN users u ON u.id=lr.user_id WHERE lr.id=?`).bind(reqToken).first();
     let text = "این درخواست معتبر نیست یا منقضی شده.";
