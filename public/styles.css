@@ -37,6 +37,10 @@
 
 * { box-sizing: border-box; }
 
+/* عناصری که با ویژگی hidden پنهان می‌شوند باید حتماً مخفی بمانند
+   (کلاس‌هایی مثل .auth-screen با display:grid بر hidden پیش‌فرض مرورگر غلبه می‌کنند). */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: "Vazirmatn", "Segoe UI", Tahoma, system-ui, -apple-system, sans-serif;
