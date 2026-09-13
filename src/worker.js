@@ -13,14 +13,16 @@ const LOGIN_REQUEST_TTL_MIN = 3;
 const CURRENCIES = ["IRT", "IRR", "EUR", "USD", "TRY"];
 const DEFAULT_CURRENCY = "IRT";
 
+// نوع هر پاکت برای نمره‌دهی: essential | discretionary | savings | investment
+const POCKET_KINDS = ["essential", "discretionary", "savings", "investment"];
 const DEFAULT_POCKETS = [
-  ["اجاره و هزینه‌های ثابت", "🏠", 35, 45, 1],
-  ["غذا و خرید روزمره", "🛒", 10, 15, 2],
-  ["حمل‌ونقل", "🚆", 5, 10, 3],
-  ["قبض و اشتراک‌ها", "📱", 5, 5, 4],
-  ["تفریح و خرید شخصی", "🎉", 10, 10, 5],
-  ["پس‌انداز اضطراری", "💰", 10, 15, 6],
-  ["سرمایه‌گذاری / پس‌انداز هدفمند", "📈", 5, 10, 7],
+  ["اجاره و هزینه‌های ثابت", "🏠", 35, 45, 1, "essential"],
+  ["غذا و خرید روزمره", "🛒", 10, 15, 2, "essential"],
+  ["حمل‌ونقل", "🚆", 5, 10, 3, "essential"],
+  ["قبض و اشتراک‌ها", "📱", 5, 5, 4, "essential"],
+  ["تفریح و خرید شخصی", "🎉", 10, 10, 5, "discretionary"],
+  ["پس‌انداز اضطراری", "💰", 10, 15, 6, "savings"],
+  ["سرمایه‌گذاری / پس‌انداز هدفمند", "📈", 5, 10, 7, "investment"],
 ];
 
 /* ---------- پاسخ‌ها ---------- */
@@ -101,7 +103,8 @@ async function ensureSchema(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER NOT NULL,
       name TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '💰',
       min_percent REAL NOT NULL DEFAULT 0, max_percent REAL NOT NULL DEFAULT 0,
-      currency TEXT NOT NULL DEFAULT 'IRT', sort_order INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'IRT', kind TEXT NOT NULL DEFAULT 'discretionary',
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS pocket_members (
@@ -137,14 +140,15 @@ async function ensureSchema(db) {
 }
 
 async function seedPockets(db, userId, currency) {
-  for (const [name, emoji, min, max, order] of DEFAULT_POCKETS) {
+  for (const [name, emoji, min, max, order, kind] of DEFAULT_POCKETS) {
     const res = await db.prepare(
-      `INSERT INTO pockets (owner_id, name, emoji, min_percent, max_percent, currency, sort_order) VALUES (?,?,?,?,?,?,?)`
-    ).bind(userId, name, emoji, min, max, currency, order).run();
+      `INSERT INTO pockets (owner_id, name, emoji, min_percent, max_percent, currency, kind, sort_order) VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(userId, name, emoji, min, max, currency, kind, order).run();
     await db.prepare(`INSERT INTO pocket_members (pocket_id, user_id, role) VALUES (?,?, 'owner')`)
       .bind(res.meta.last_row_id, userId).run();
   }
 }
+function validKind(k) { return POCKET_KINDS.includes(k) ? k : "discretionary"; }
 
 /* ---------- کاربر / نشست ---------- */
 async function getUser(req, db) {
@@ -188,6 +192,161 @@ function monthRange(month) {
   return { start, end: `${ny}-${String(nm).padStart(2, "0")}-01` };
 }
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : NaN; };
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+function monthAdd(month, delta) {
+  let [y, m] = month.split("-").map(Number);
+  m += delta;
+  while (m <= 0) { m += 12; y -= 1; }
+  while (m > 12) { m -= 12; y += 1; }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
+/* ============ موتور نمره‌دهی مدیریت مالی ============ */
+// جداول امتیاز (بر پایه‌ی الگوریتم مورد توافق)
+const catScore = (d) => (d <= 0 ? 100 : d <= 0.1 ? 95 : d <= 0.25 ? 85 : d <= 0.5 ? 70 : d <= 1 ? 45 : 0);
+const savingsBase = (r) => (r < 0 ? 0 : r < 0.05 ? 8 : r < 0.1 ? 15 : r < 0.15 ? 21 : r < 0.2 ? 25 : r < 0.25 ? 28 : 30);
+const savingsBonus = (imp) => (imp <= 0 ? 0 : imp <= 0.05 ? 1 : imp <= 0.1 ? 3 : 5);
+const liquidityScore = (r) => (r >= 1.2 ? 15 : r >= 1 ? 13 : r >= 0.9 ? 8 : r >= 0.75 ? 4 : 0);
+const stabilityScore = (g) => (g <= 0 ? 10 : g <= 0.1 ? 9 : g <= 0.2 ? 7 : g <= 0.4 ? 5 : g <= 0.7 ? 3 : 0);
+const lifestyleScore = (rate, target) => (rate <= target ? 10 : rate <= target + 0.05 ? 8 : rate <= target + 0.1 ? 6 : rate <= target + 0.2 ? 3 : 0);
+function scoreLabel(s) {
+  if (s >= 90) return { label: "عالی", emoji: "🌟", tone: "great" };
+  if (s >= 75) return { label: "خوب", emoji: "✅", tone: "good" };
+  if (s >= 60) return { label: "متوسط", emoji: "⚠️", tone: "ok" };
+  if (s >= 40) return { label: "نیاز به بهبود", emoji: "🟠", tone: "warn" };
+  return { label: "پرخرج", emoji: "🔴", tone: "bad" };
+}
+
+async function aggregateMonth(db, uid, currency, month) {
+  const { start, end } = monthRange(month);
+  const { results } = await db.prepare(
+    `SELECT p.id, p.name, p.kind, p.min_percent, p.max_percent,
+       COALESCE(SUM(CASE WHEN t.type='income'  AND t.occurred_on>=?2 AND t.occurred_on<?3 THEN t.amount END),0) AS inc,
+       COALESCE(SUM(CASE WHEN t.type='expense' AND t.occurred_on>=?2 AND t.occurred_on<?3 THEN t.amount END),0) AS exp
+     FROM pockets p JOIN pocket_members pm ON pm.pocket_id=p.id AND pm.user_id=?1
+     LEFT JOIN transactions t ON t.pocket_id=p.id
+     WHERE p.currency=?4 GROUP BY p.id`
+  ).bind(uid, start, end, currency).all();
+
+  const loan = await db.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN lender_id=?1 THEN amount END),0) AS lent,
+       COALESCE(SUM(CASE WHEN borrower_id=?1 THEN amount END),0) AS borrowed
+     FROM loans WHERE currency=?2 AND status IN ('active','settled') AND created_at>=?3 AND created_at<?4`
+  ).bind(uid, currency, start, end).first();
+
+  let income = 0, essential_out = 0, discretionary_out = 0, saved = 0, disc_budget_rate = 0;
+  const spending = [];
+  for (const r of results) {
+    income += r.inc;
+    const mid = (Number(r.min_percent) + Number(r.max_percent)) / 2 / 100;
+    if (r.kind === "essential" || r.kind === "discretionary") {
+      spending.push({ name: r.name, kind: r.kind, weight: mid, out: r.exp });
+      if (r.kind === "essential") essential_out += r.exp;
+      else { discretionary_out += r.exp; disc_budget_rate += mid; }
+    } else { saved += (r.inc - r.exp); } // savings + investment: خالص کنارگذاشته‌شده
+  }
+  return { income, essential_out, discretionary_out, saved, disc_budget_rate, spending,
+    lent: loan.lent, borrowed: loan.borrowed,
+    has_data: income > 0 || essential_out > 0 || discretionary_out > 0 || saved !== 0 };
+}
+
+async function savingBaseline(db, uid, currency, month) {
+  let sum = 0, n = 0;
+  for (let i = 1; i <= 3; i++) {
+    const a = await aggregateMonth(db, uid, currency, monthAdd(month, -i));
+    if (a.income > 0) { sum += a.saved / a.income; n++; }
+  }
+  return n ? sum / n : null;
+}
+
+async function computeScore(db, uid, currency, month, withMomentum = true) {
+  const agg = await aggregateMonth(db, uid, currency, month);
+  if (!agg.has_data) return { month, currency, score: null, has_data: false };
+  const income = agg.income || 0;
+
+  // ۱) کنترل بودجه (۳۵)
+  let bw = 0, bAcc = 0, worst = null;
+  for (const p of agg.spending) {
+    const budget = income * p.weight;
+    let cs;
+    if (budget <= 0) cs = p.out > 0 ? 0 : 100;
+    else { const dev = (p.out - budget) / budget; cs = catScore(dev); if (dev > 0 && (!worst || dev > worst.dev)) worst = { name: p.name, dev }; }
+    const w = p.weight > 0 ? p.weight : 0.01;
+    bAcc += cs * w; bw += w;
+  }
+  const budgetScore = (bw > 0 ? bAcc / bw : 100) / 100 * 35;
+
+  // ۲) پس‌انداز (۳۰) + پاداش (۵)
+  const savingRate = income > 0 ? agg.saved / income : 0;
+  const baseline = await savingBaseline(db, uid, currency, month);
+  const improvement = baseline == null ? 0 : savingRate - baseline;
+  const savBase = savingsBase(savingRate);
+  const bonus = savingsBonus(improvement);
+  const savingsTotal = savBase + bonus;
+
+  // ۳) نقدینگی (۱۵)
+  const availForEssentials = income - agg.discretionary_out - Math.max(0, agg.saved);
+  const liqRatio = agg.essential_out > 0 ? availForEssentials / agg.essential_out : (availForEssentials >= 0 ? 1.5 : 0);
+  let liq = liquidityScore(liqRatio);
+  if (agg.borrowed > 0) liq = Math.min(liq, 5);
+
+  // ۴) ثبات (۱۰)
+  const prev = await aggregateMonth(db, uid, currency, monthAdd(month, -1));
+  const dGrowth = prev.discretionary_out > 0 ? (agg.discretionary_out - prev.discretionary_out) / prev.discretionary_out : (agg.discretionary_out > 0 ? 1 : 0);
+  const incGrowth = prev.income > 0 ? (income - prev.income) / prev.income : 0;
+  const stab = stabilityScore(dGrowth - Math.max(0, incGrowth));
+
+  // ۵) ولخرجی (۱۰)
+  const discRate = income > 0 ? agg.discretionary_out / income : 0;
+  const target = agg.disc_budget_rate > 0 ? agg.disc_budget_rate : 0.15;
+  const life = lifestyleScore(discRate, target);
+
+  // قرض: دادن مثبت، گرفتن منفی
+  const loanFactor = income > 0 ? (agg.lent - agg.borrowed) / income : 0;
+  const loanAdj = clamp(loanFactor * 20, -10, 5);
+
+  let raw = budgetScore + savingsTotal + liq + stab + life + loanAdj;
+  let final = clamp(raw, 0, 100);
+  if (liqRatio < 0.9) final = Math.min(final, 59);   // هزینه‌های ضروری تأمین نشده
+  if (agg.borrowed > 0) final = Math.min(final, 69);  // برای هزینه‌ی عادی قرض گرفته
+  final = Math.round(final);
+
+  // توصیه‌ها
+  const recs = [];
+  if (worst && worst.dev > 0.1) recs.push({ type: "budget", text: `این ماه ${Math.round(worst.dev * 100)}٪ بیشتر از بودجه‌ی «${worst.name}» خرج کردی.` });
+  if (agg.borrowed > 0) recs.push({ type: "loan", text: "این ماه قرض گرفتی؛ نمره را کاهش داد. سعی کن ماه بعد بدون قرض هزینه‌ها را پوشش دهی." });
+  if (savBase < 21) recs.push({ type: "savings", text: `نرخ پس‌اندازت ${Math.round(savingRate * 100)}٪ بود؛ افزایش آن نمره را بالا می‌برد.` });
+  if (liq < 13) recs.push({ type: "liquidity", text: "پوشش هزینه‌های ضروری‌ات این ماه ضعیف بود." });
+  if (life < 8) recs.push({ type: "lifestyle", text: `هزینه‌های اختیاری ${Math.round(discRate * 100)}٪ درآمدت را تشکیل داد.` });
+  const positives = [];
+  if (bonus > 0 && improvement > 0) positives.push(`این ماه ${Math.round(improvement * 100)} واحد درصد بهتر از میانگین معمولت پس‌انداز کردی. 👏`);
+  if (agg.lent > agg.borrowed && agg.lent > 0) positives.push("این ماه قرض دادی؛ نشانه‌ی مدیریت خوب نقدینگی. 👍");
+
+  const meta = scoreLabel(final);
+  const result = {
+    month, currency, score: final, has_data: true, label: meta.label, label_emoji: meta.emoji, tone: meta.tone,
+    breakdown: {
+      budget: { score: Math.round(budgetScore * 10) / 10, max: 35 },
+      savings: { score: savBase, bonus, max: 30, saving_rate: Math.round(savingRate * 1000) / 10, baseline: baseline == null ? null : Math.round(baseline * 1000) / 10 },
+      liquidity: { score: liq, max: 15, ratio: Math.round(liqRatio * 100) / 100 },
+      stability: { score: stab, max: 10 },
+      lifestyle: { score: life, max: 10, discretionary_rate: Math.round(discRate * 1000) / 10 },
+      loan_adjustment: Math.round(loanAdj * 10) / 10,
+    },
+    recommendations: recs.slice(0, 2),
+    positives: positives.slice(0, 2),
+  };
+  if (withMomentum) {
+    result.momentum = [];
+    for (let i = 2; i >= 0; i--) {
+      const m = monthAdd(month, -i);
+      const s = i === 0 ? final : (await computeScore(db, uid, currency, m, false)).score;
+      result.momentum.push({ month: m, score: s });
+    }
+  }
+  return result;
+}
 
 /* ---------- تلگرام ---------- */
 async function verifyTelegramInitData(initData, botToken) {
@@ -410,7 +569,7 @@ async function handleData(req, db, uid, segments) {
       const currency = validCurrency(url.searchParams.get("currency"));
       const { start, end } = monthRange(url.searchParams.get("month"));
       const { results } = await db.prepare(
-        `SELECT p.id, p.owner_id, p.name, p.emoji, p.min_percent, p.max_percent, p.currency, p.sort_order,
+        `SELECT p.id, p.owner_id, p.name, p.emoji, p.min_percent, p.max_percent, p.currency, p.kind, p.sort_order,
           (SELECT COUNT(*) FROM pocket_members pm2 WHERE pm2.pocket_id=p.id) AS member_count,
           COALESCE(SUM(CASE WHEN t.type='income' THEN t.amount END),0) AS all_income,
           COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount END),0) AS all_expense,
@@ -425,7 +584,7 @@ async function handleData(req, db, uid, segments) {
       return json({
         pockets: results.map((r) => ({
           id: r.id, name: r.name, emoji: r.emoji, min_percent: r.min_percent, max_percent: r.max_percent,
-          currency: r.currency, sort_order: r.sort_order,
+          currency: r.currency, kind: r.kind, sort_order: r.sort_order,
           member_count: r.member_count, is_shared: r.member_count > 1, is_owner: r.owner_id === uid,
           period_income: r.period_income, period_expense: r.period_expense,
           balance: r.all_income - r.all_expense,
@@ -440,9 +599,10 @@ async function handleData(req, db, uid, segments) {
       const currency = validCurrency(b.currency);
       const emoji = (b.emoji || "💰").toString().slice(0, 8);
       const min = num(b.min_percent) || 0, max = num(b.max_percent) || 0;
+      const kind = validKind(b.kind);
       const { order } = await db.prepare(`SELECT COALESCE(MAX(sort_order),0)+1 AS "order" FROM pockets WHERE owner_id=? AND currency=?`).bind(uid, currency).first();
-      const res = await db.prepare(`INSERT INTO pockets (owner_id, name, emoji, min_percent, max_percent, currency, sort_order) VALUES (?,?,?,?,?,?,?)`)
-        .bind(uid, name, emoji, min, max, currency, order).run();
+      const res = await db.prepare(`INSERT INTO pockets (owner_id, name, emoji, min_percent, max_percent, currency, kind, sort_order) VALUES (?,?,?,?,?,?,?,?)`)
+        .bind(uid, name, emoji, min, max, currency, kind, order).run();
       await db.prepare(`INSERT INTO pocket_members (pocket_id, user_id, role) VALUES (?,?, 'owner')`).bind(res.meta.last_row_id, uid).run();
       return json({ id: res.meta.last_row_id }, 201);
     }
@@ -497,8 +657,9 @@ async function handleData(req, db, uid, segments) {
       const emoji = b.emoji != null ? b.emoji.toString().slice(0, 8) : p.emoji;
       const min = b.min_percent != null ? num(b.min_percent) : p.min_percent;
       const max = b.max_percent != null ? num(b.max_percent) : p.max_percent;
+      const kind = b.kind != null ? validKind(b.kind) : p.kind;
       if (!name) return badRequest("نام نمی‌تواند خالی باشد");
-      await db.prepare(`UPDATE pockets SET name=?, emoji=?, min_percent=?, max_percent=? WHERE id=?`).bind(name, emoji, min, max, id).run();
+      await db.prepare(`UPDATE pockets SET name=?, emoji=?, min_percent=?, max_percent=?, kind=? WHERE id=?`).bind(name, emoji, min, max, kind, id).run();
       return json({ ok: true });
     }
 
@@ -683,6 +844,34 @@ async function handleData(req, db, uid, segments) {
       await db.prepare(`DELETE FROM loans WHERE id=?`).bind(id).run();
       return json({ ok: true });
     }
+  }
+
+  /* --- نمره‌ی مدیریت مالی --- */
+  if (resource === "score" && method === "GET") {
+    const currency = validCurrency(url.searchParams.get("currency"));
+    const month = url.searchParams.get("month") || new Date().toISOString().slice(0, 7);
+    return json(await computeScore(db, uid, currency, month));
+  }
+
+  /* --- رتبه‌بندی بین کاربران (به تفکیک ارز، ماهانه) --- */
+  if (resource === "rank" && method === "GET") {
+    const currency = validCurrency(url.searchParams.get("currency"));
+    const month = url.searchParams.get("month") || new Date().toISOString().slice(0, 7);
+    const { results: users } = await db.prepare(
+      `SELECT DISTINCT pm.user_id FROM pocket_members pm JOIN pockets p ON p.id=pm.pocket_id WHERE p.currency=?`
+    ).bind(currency).all();
+    const rows = [];
+    for (const { user_id } of users) {
+      const s = await computeScore(db, user_id, currency, month, false);
+      if (!s.has_data || s.score == null) continue;
+      const u = await db.prepare(`SELECT id, display_name, email, telegram_username, telegram_photo_url FROM users WHERE id=?`).bind(user_id).first();
+      rows.push({ user_id, score: s.score, label: s.label, label_emoji: s.label_emoji,
+        name: u.display_name || (u.telegram_username ? "@" + u.telegram_username : (u.email ? u.email.split("@")[0] : "کاربر")),
+        photo_url: u.telegram_photo_url || null, is_me: user_id === uid });
+    }
+    rows.sort((a, b) => b.score - a.score);
+    rows.forEach((r, i) => (r.rank = i + 1));
+    return json({ month, currency, rank: rows, me: rows.find((r) => r.is_me) || null });
   }
 
   return notFound("مسیر API یافت نشد");

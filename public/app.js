@@ -195,7 +195,8 @@ function openPocket(pocket = null) {
   $("#pocketName").value = pocket ? pocket.name : "";
   $("#pocketMin").value = pocket ? pocket.min_percent : 0;
   $("#pocketMax").value = pocket ? pocket.max_percent : 0;
-  ["#pocketEmoji", "#pocketName", "#pocketMin", "#pocketMax"].forEach((s) => ($(s).disabled = !isOwner));
+  $("#pocketKind").value = pocket ? (pocket.kind || "discretionary") : "discretionary";
+  ["#pocketEmoji", "#pocketName", "#pocketMin", "#pocketMax", "#pocketKind"].forEach((s) => ($(s).disabled = !isOwner));
   $("#pocketDelete").hidden = !pocket || !isOwner;
   $("#pocketOwnerActions").hidden = !isOwner;
   $("#pocketShare").hidden = !(pocket && isOwner);
@@ -220,7 +221,7 @@ async function loadMembers(pocketId, isOwner) {
 $("#pocketForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const id = $("#pocketId").value;
-  const body = { name: $("#pocketName").value.trim(), emoji: $("#pocketEmoji").value.trim() || "💰", min_percent: Number($("#pocketMin").value) || 0, max_percent: Number($("#pocketMax").value) || 0 };
+  const body = { name: $("#pocketName").value.trim(), emoji: $("#pocketEmoji").value.trim() || "💰", min_percent: Number($("#pocketMin").value) || 0, max_percent: Number($("#pocketMax").value) || 0, kind: $("#pocketKind").value };
   if (!body.name) return toast("نام پاکت الزامی است");
   try {
     if (id) await api(`/pockets/${id}`, { method: "PUT", body: JSON.stringify(body) });
@@ -403,6 +404,98 @@ $("#loansList").addEventListener("click", async (e) => {
   } catch (err) { toast(err.message); }
 });
 
+/* ============ نمره و رتبه ============ */
+const TONE = {
+  great: { ring: "#10b981", bg: "bg-emerald-50", text: "text-emerald-600" },
+  good: { ring: "#0ea5e9", bg: "bg-sky-50", text: "text-sky-600" },
+  ok: { ring: "#f59e0b", bg: "bg-amber-50", text: "text-amber-600" },
+  warn: { ring: "#f97316", bg: "bg-orange-50", text: "text-orange-600" },
+  bad: { ring: "#ef4444", bg: "bg-red-50", text: "text-red-600" },
+};
+const KIND_LABEL = { essential: "ضروری", discretionary: "اختیاری", savings: "پس‌انداز", investment: "سرمایه‌گذاری" };
+function gaugeSvg(score, color) {
+  const R = 52, C = 2 * Math.PI * R, off = C * (1 - (score || 0) / 100);
+  return `<svg viewBox="0 0 120 120" class="w-32 h-32 -rotate-90">
+    <circle cx="60" cy="60" r="${R}" fill="none" stroke="currentColor" class="text-slate-100" stroke-width="12"/>
+    <circle cx="60" cy="60" r="${R}" fill="none" stroke="${color}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}"/>
+  </svg>`;
+}
+function barRow(label, score, max, extra) {
+  const pct = max > 0 ? Math.round((score / max) * 100) : 0;
+  return `<div class="space-y-1">
+    <div class="flex justify-between text-[11px] font-bold"><span class="text-ink">${label}</span><span class="text-muted">${faInt(Math.round(score))}/${faInt(max)}${extra ? " · " + extra : ""}</span></div>
+    <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-brand-500 rounded-full" style="width:${pct}%"></div></div>
+  </div>`;
+}
+async function openScore() {
+  $("#scoreScreen").hidden = false;
+  $("#scoreCurLabel").textContent = cur().label;
+  $("#rankCurNote").textContent = `${monthLabel(state.month)} · ${cur().label}`;
+  $("#scoreBody").innerHTML = `<div class="py-10 text-center text-sm font-bold text-muted">در حال محاسبه…</div>`;
+  $("#rankList").innerHTML = "";
+  try {
+    const [s, rk] = await Promise.all([
+      api(`/score?currency=${state.currency}&month=${state.month}`),
+      api(`/rank?currency=${state.currency}&month=${state.month}`),
+    ]);
+    renderScore(s);
+    renderRank(rk);
+  } catch (err) { $("#scoreBody").innerHTML = `<div class="py-10 text-center text-sm font-bold text-red-500">${escapeHtml(err.message)}</div>`; }
+}
+function renderScore(s) {
+  if (!s.has_data || s.score == null) {
+    $("#scoreBody").innerHTML = `<div class="py-10 text-center space-y-2"><div class="text-4xl">📊</div><p class="text-sm font-bold text-muted">برای این ماه داده‌ای نیست.<br>حقوق را تقسیم کنید و چند تراکنش ثبت کنید.</p></div>`;
+    return;
+  }
+  const tone = TONE[s.tone] || TONE.ok;
+  const b = s.breakdown;
+  const mome = (s.momentum || []).filter((m) => m.score != null);
+  const first = mome.length ? mome[0].score : null, last = s.score;
+  const delta = first != null && mome.length > 1 ? last - first : null;
+  const momentumHtml = mome.length > 1 ? `
+    <div class="flex items-center justify-center gap-3 mt-3 text-[11px] font-bold text-muted">
+      ${s.momentum.map((m) => `<span class="flex flex-col items-center gap-0.5"><b class="${m.score == null ? "text-slate-300" : "text-ink"} text-sm">${m.score == null ? "—" : faInt(m.score)}</b><span>${monthLabel(m.month).split(" ")[0]}</span></span>`).join('<i class="fa-solid fa-chevron-left text-[8px] text-slate-300"></i>')}
+      ${delta != null && delta !== 0 ? `<span class="${delta > 0 ? "text-emerald-600" : "text-red-500"} font-black">${delta > 0 ? "📈 +" : "📉 "}${faInt(delta)}</span>` : ""}
+    </div>` : "";
+  const recsHtml = (s.recommendations || []).map((r) => `<div class="flex gap-2 text-[12px] font-bold text-ink bg-slate-50 rounded-xl p-3"><i class="fa-solid fa-lightbulb text-amber-500 mt-0.5"></i><span>${escapeHtml(r.text)}</span></div>`).join("");
+  const posHtml = (s.positives || []).map((t) => `<div class="flex gap-2 text-[12px] font-bold text-emerald-700 bg-emerald-50 rounded-xl p-3"><i class="fa-solid fa-circle-check text-emerald-500 mt-0.5"></i><span>${escapeHtml(t)}</span></div>`).join("");
+  const loanAdj = b.loan_adjustment;
+  $("#scoreBody").innerHTML = `
+    <div class="flex flex-col items-center">
+      <div class="relative">
+        ${gaugeSvg(s.score, tone.ring)}
+        <div class="absolute inset-0 flex flex-col items-center justify-center">
+          <span class="text-3xl font-black tracking-tighter text-ink">${faInt(s.score)}</span>
+          <span class="text-[10px] font-bold text-muted">از ۱۰۰</span>
+        </div>
+      </div>
+      <div class="mt-2 px-4 py-1 rounded-full ${tone.bg} ${tone.text} text-sm font-black">${s.label_emoji} ${s.label}</div>
+      ${momentumHtml}
+    </div>
+    <div class="space-y-3 mt-6">
+      ${barRow("کنترل بودجه", b.budget.score, b.budget.max)}
+      ${barRow("پس‌انداز و سرمایه‌گذاری", b.savings.score + b.savings.bonus, b.savings.max, `نرخ ${faPct(b.savings.saving_rate)}${b.savings.bonus ? " · پاداش +" + faInt(b.savings.bonus) : ""}`)}
+      ${barRow("نقدینگی", b.liquidity.score, b.liquidity.max)}
+      ${barRow("ثبات مالی", b.stability.score, b.stability.max)}
+      ${barRow("کنترل ولخرجی", b.lifestyle.score, b.lifestyle.max, `اختیاری ${faPct(b.lifestyle.discretionary_rate)}`)}
+      <div class="flex justify-between text-[11px] font-bold pt-1"><span class="text-ink">اثر قرض</span><span class="${loanAdj >= 0 ? "text-emerald-600" : "text-red-500"}">${loanAdj >= 0 ? "+" : ""}${faInt(loanAdj)}</span></div>
+    </div>
+    ${posHtml ? `<div class="space-y-2 mt-4">${posHtml}</div>` : ""}
+    ${recsHtml ? `<div class="space-y-2 mt-2">${recsHtml}</div>` : ""}`;
+}
+function renderRank(rk) {
+  if (!rk.rank.length) { $("#rankList").innerHTML = `<p class="text-xs font-bold text-muted text-center py-4">داده‌ای برای رتبه‌بندی نیست.</p>`; return; }
+  const medal = (n) => (n === 1 ? "🥇" : n === 2 ? "🥈" : n === 3 ? "🥉" : faInt(n));
+  $("#rankList").innerHTML = rk.rank.map((r) => `
+    <div class="flex items-center gap-3 rounded-2xl p-3 border ${r.is_me ? "border-brand bg-brand/5" : "border-slate-100 bg-white"}">
+      <span class="w-7 text-center font-black ${r.rank <= 3 ? "text-lg" : "text-sm text-muted"}">${medal(r.rank)}</span>
+      <div class="w-9 h-9 rounded-xl bg-brand/10 text-brand font-black flex items-center justify-center overflow-hidden">${r.photo_url ? `<img src="${escapeHtml(r.photo_url)}" class="w-full h-full object-cover" referrerpolicy="no-referrer">` : escapeHtml((r.name || "؟")[0].toUpperCase())}</div>
+      <div class="flex-1 min-w-0"><p class="text-xs font-extrabold text-ink truncate">${escapeHtml(r.name)}${r.is_me ? " (شما)" : ""}</p><p class="text-[10px] font-bold text-muted">${r.label_emoji} ${escapeHtml(r.label)}</p></div>
+      <span class="text-base font-black tracking-tighter text-ink">${faInt(r.score)}</span>
+    </div>`).join("");
+}
+$("#scoreBack").addEventListener("click", () => ($("#scoreScreen").hidden = true));
+
 /* ============ ماه و ارز ============ */
 function applyMonth() { $("#monthLabel").textContent = monthLabel(state.month); $("#monthInput").value = state.month; }
 $("#monthBtn").addEventListener("click", () => { const inp = $("#monthInput"); if (inp.showPicker) { try { inp.showPicker(); return; } catch {} } inp.click(); });
@@ -472,6 +565,7 @@ $$("[data-nav]").forEach((b) => b.addEventListener("click", () => {
   if (n === "tx") openTx("expense");
   else if (n === "profile") openProfile();
   else if (n === "loans") openLoans();
+  else if (n === "score") openScore();
   else window.scrollTo({ top: 0, behavior: "smooth" });
 }));
 $("#bellBtn").addEventListener("click", () => toast("اعلان جدیدی ندارید"));
@@ -529,7 +623,7 @@ function showTgAuth() {
   $("#tgSubmit").hidden = false; $("#tgSubmit").textContent = "ارسال درخواست"; $("#tgError").hidden = true;
 }
 function showAuth() {
-  $("#appScreen").hidden = true; $("#distributeScreen").hidden = true; $("#loansScreen").hidden = true;
+  $("#appScreen").hidden = true; $("#distributeScreen").hidden = true; $("#loansScreen").hidden = true; $("#scoreScreen").hidden = true;
   $("#authScreen").hidden = false; showEmailAuth();
 }
 function userName(u) { return u?.display_name || u?.email || (u?.telegram_username ? "@" + u.telegram_username : ""); }
