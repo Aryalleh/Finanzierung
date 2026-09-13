@@ -43,11 +43,15 @@ function faDate(iso) {
 }
 
 /* ---- ارتباط با API ---- */
+class AuthError extends Error {}
+
 async function api(path, options) {
   const res = await fetch("/api" + path, {
     headers: { "content-type": "application/json" },
+    credentials: "same-origin",
     ...options,
   });
+  if (res.status === 401) throw new AuthError("نیازمند ورود");
   if (!res.ok) {
     let msg = "خطا در ارتباط با سرور";
     try { const j = await res.json(); msg = j.error || msg; } catch {}
@@ -79,6 +83,7 @@ async function refresh() {
     renderPockets(pocketsRes.pockets);
     renderTx(txRes.transactions);
   } catch (err) {
+    if (err instanceof AuthError) return showAuth();
     toast(err.message);
   }
 }
@@ -339,6 +344,80 @@ window.addEventListener("online", updateOnline);
 window.addEventListener("offline", updateOnline);
 updateOnline();
 
+/* ---- احراز هویت ---- */
+const authScreen = $("#authScreen");
+const appScreen = $("#appScreen");
+let authMode = "login"; // login | register
+
+function showAuth() {
+  appScreen.hidden = true;
+  authScreen.hidden = false;
+  $("#authError").hidden = true;
+}
+function showApp() {
+  authScreen.hidden = true;
+  appScreen.hidden = false;
+  refresh();
+}
+function setAuthMode(mode) {
+  authMode = mode;
+  const isLogin = mode === "login";
+  $("#authSub").textContent = isLogin ? "برای ادامه وارد شوید" : "یک حساب جدید بسازید";
+  $("#authSubmit").textContent = isLogin ? "ورود" : "ثبت‌نام";
+  $("#authSwitchText").textContent = isLogin ? "حساب ندارید؟" : "حساب دارید؟";
+  $("#authToggle").textContent = isLogin ? "ثبت‌نام کنید" : "وارد شوید";
+  $("#authPassword").autocomplete = isLogin ? "current-password" : "new-password";
+  $("#authError").hidden = true;
+}
+$("#authToggle").addEventListener("click", () => setAuthMode(authMode === "login" ? "register" : "login"));
+
+$("#authForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = $("#authEmail").value.trim();
+  const password = $("#authPassword").value;
+  const errEl = $("#authError");
+  errEl.hidden = true;
+  const submit = $("#authSubmit");
+  submit.disabled = true;
+  const original = submit.textContent;
+  submit.textContent = "لطفاً صبر کنید…";
+  try {
+    const path = authMode === "login" ? "/auth/login" : "/auth/register";
+    const res = await fetch("/api" + path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "خطا در احراز هویت");
+    showApp();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.hidden = false;
+  } finally {
+    submit.disabled = false;
+    submit.textContent = original;
+  }
+});
+
+$("#btnLogout").addEventListener("click", async () => {
+  try { await api("/auth/logout", { method: "POST" }); } catch {}
+  $("#authForm").reset();
+  setAuthMode("login");
+  showAuth();
+});
+
+async function init() {
+  try {
+    await api("/auth/me");
+    showApp();
+  } catch (err) {
+    if (err instanceof AuthError) setAuthMode("login"), showAuth();
+    else { setAuthMode("login"); showAuth(); }
+  }
+}
+
 /* ---- Service Worker ---- */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -347,4 +426,4 @@ if ("serviceWorker" in navigator) {
 }
 
 /* ---- شروع ---- */
-refresh();
+init();

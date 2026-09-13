@@ -12,6 +12,33 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <!-- ============ صفحه‌ی ورود / ثبت‌نام ============ -->
+  <div id="authScreen" class="auth-screen" hidden>
+    <div class="auth-card">
+      <div class="auth-brand">💶</div>
+      <h1 class="auth-title">مدیریت حقوق ماهانه</h1>
+      <p class="auth-sub" id="authSub">برای ادامه وارد شوید</p>
+      <form id="authForm">
+        <div class="field">
+          <label for="authEmail">ایمیل</label>
+          <input id="authEmail" type="email" autocomplete="email" required placeholder="you@example.com" />
+        </div>
+        <div class="field">
+          <label for="authPassword">رمز عبور</label>
+          <input id="authPassword" type="password" autocomplete="current-password" required minlength="8" placeholder="حداقل ۸ کاراکتر" />
+        </div>
+        <p class="auth-error" id="authError" hidden></p>
+        <button type="submit" class="btn btn-primary btn-block" id="authSubmit">ورود</button>
+      </form>
+      <p class="auth-switch">
+        <span id="authSwitchText">حساب ندارید؟</span>
+        <button type="button" class="link-btn" id="authToggle">ثبت‌نام کنید</button>
+      </p>
+    </div>
+  </div>
+
+  <!-- ============ برنامه (پس از ورود) ============ -->
+  <div id="appScreen" hidden>
   <header class="app-header">
     <div class="wrap header-inner">
       <h1>💶 مدیریت حقوق ماهانه</h1>
@@ -27,6 +54,7 @@
           <option value="IRR">﷼ ریال</option>
           <option value="IRT">تومان</option>
         </select>
+        <button id="btnLogout" class="icon-btn" title="خروج" aria-label="خروج">⏻</button>
       </div>
     </div>
   </header>
@@ -75,6 +103,7 @@
     <span id="offlineBadge" class="badge-offline" hidden>آفلاین</span>
     <span>ساخته‌شده با Cloudflare Workers · داده‌ها روی D1</span>
   </footer>
+  </div><!-- /#appScreen -->
 
   <!-- ============ مودال‌ها ============ -->
 
