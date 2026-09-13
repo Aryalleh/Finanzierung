@@ -77,7 +77,8 @@ function clearCookie(req) {
 let schemaReady = null;
 async function ensureSchema(db) {
   if (schemaReady) return schemaReady;
-  schemaReady = db.batch([
+  schemaReady = (async () => {
+  await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE,
@@ -136,6 +137,30 @@ async function ensureSchema(db) {
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_loans_lender ON loans(lender_id)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_loans_borrower ON loans(borrower_id)`),
   ]);
+
+  // ---- ترمیم خودکار دیتابیس‌های قدیمی: افزودن ستون‌های جدید (هر کدام جدا و بی‌خطر) ----
+  const alters = [
+    "ALTER TABLE users ADD COLUMN telegram_id TEXT",
+    "ALTER TABLE users ADD COLUMN telegram_username TEXT",
+    "ALTER TABLE users ADD COLUMN telegram_chat_id TEXT",
+    "ALTER TABLE users ADD COLUMN telegram_photo_url TEXT",
+    "ALTER TABLE users ADD COLUMN display_name TEXT",
+    "ALTER TABLE users ADD COLUMN password_hash TEXT",
+    "ALTER TABLE users ADD COLUMN password_salt TEXT",
+    "ALTER TABLE pockets ADD COLUMN owner_id INTEGER",
+    "ALTER TABLE pockets ADD COLUMN currency TEXT NOT NULL DEFAULT 'IRT'",
+    "ALTER TABLE pockets ADD COLUMN kind TEXT NOT NULL DEFAULT 'discretionary'",
+    "ALTER TABLE transactions ADD COLUMN user_id INTEGER",
+    "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'IRT'",
+  ];
+  for (const sql of alters) { try { await db.prepare(sql).run(); } catch (e) { /* ستون از قبل هست */ } }
+
+  // بازپرکردن داده‌های لازم برای مدل جدید (بی‌خطر و idempotent)
+  try { await db.prepare(`UPDATE pockets SET owner_id = user_id WHERE owner_id IS NULL AND user_id IS NOT NULL`).run(); } catch (e) {}
+  try { await db.prepare(`INSERT OR IGNORE INTO pocket_members (pocket_id, user_id, role) SELECT id, owner_id, 'owner' FROM pockets WHERE owner_id IS NOT NULL`).run(); } catch (e) {}
+  try { await db.prepare(`UPDATE transactions SET user_id = (SELECT owner_id FROM pockets WHERE pockets.id = transactions.pocket_id) WHERE user_id IS NULL`).run(); } catch (e) {}
+  try { await db.prepare(`UPDATE transactions SET currency = (SELECT currency FROM pockets WHERE pockets.id = transactions.pocket_id) WHERE currency IS NULL OR currency = ''`).run(); } catch (e) {}
+  })();
   return schemaReady;
 }
 
