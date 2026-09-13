@@ -2,11 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ---- سفارشی‌ها ---- */
-/* بزرگ‌تر کردن فونت پایه (رابط قبلی ریز بود) */
-html { font-size: 18px; }
+/* ============ پالت‌ها و تم ============ */
+/* پالت پیش‌فرض: سبزآبی (teal) — مقادیر به‌صورت سه‌تایی RGB برای پشتیبانی از شفافیت */
+:root {
+  --brand: 15 118 110;  --brand-dark: 13 95 88;  --brand-light: 20 184 166;
+  --brand-50: 240 253 250; --brand-100: 204 251 241; --brand-200: 153 246 228;
+  --brand-500: 20 184 166; --brand-600: 13 148 136; --brand-700: 15 118 110;
 
-/* بزرگ‌تر کردن ریزترین اندازه‌های ثابت تا با فونت پایه هماهنگ شوند */
+  /* توکن‌های سطح/متن — حالت روشن */
+  --page: #f1f5f9; --surface: #ffffff; --surface-2: #f6f8fb; --surface-3: #eef1f6;
+  --text: #0f172a; --muted: #64748b; --border: #e6ebf2;
+}
+[data-palette="purple"] {
+  --brand: 153 41 234; --brand-dark: 120 25 190; --brand-light: 255 95 207;
+  --brand-50: 250 240 255; --brand-100: 243 220 255; --brand-200: 233 190 255;
+  --brand-500: 186 85 240; --brand-600: 153 41 234; --brand-700: 120 25 190;
+}
+[data-palette="winter"] {
+  --brand: 27 44 193; --brand-dark: 9 21 64; --brand-light: 118 146 255;
+  --brand-50: 236 240 255; --brand-100: 214 224 255; --brand-200: 171 210 250;
+  --brand-500: 118 146 255; --brand-600: 27 44 193; --brand-700: 9 21 64;
+}
+
+/* حالت تیره — فقط توکن‌های سطح/متن عوض می‌شوند */
+[data-theme="dark"] {
+  --page: #0a0f1f; --surface: #141b2e; --surface-2: #1b2440; --surface-3: #26314f;
+  --text: #e8edf7; --muted: #93a1ba; --border: #2b3654;
+}
+
+/* نگاشت کلاس‌های Tailwind به توکن‌ها (هر دو حالت) */
+body,
+.bg-\[\#f1f5f9\] { background-color: var(--page) !important; }
+.bg-white { background-color: var(--surface) !important; }
+.bg-slate-50, .bg-slate-50\/50 { background-color: var(--surface-2) !important; }
+.bg-slate-100 { background-color: var(--surface-3) !important; }
+.text-ink, .text-slate-900 { color: var(--text) !important; }
+.text-muted, .text-slate-500, .text-slate-400 { color: var(--muted) !important; }
+.border-slate-50, .border-slate-100, .border-slate-200 { border-color: var(--border) !important; }
+
+/* اصلاحات فقط برای حالت تیره */
+[data-theme="dark"] .bg-white\/80 { background-color: rgb(20 27 46 / .82) !important; }
+[data-theme="dark"] .bg-emerald-50, [data-theme="dark"] .bg-emerald-50\/50 { background-color: rgb(6 60 45 / .55) !important; }
+[data-theme="dark"] .bg-red-50, [data-theme="dark"] .bg-red-50\/50 { background-color: rgb(74 22 28 / .55) !important; }
+[data-theme="dark"] .bg-amber-50 { background-color: rgb(74 58 12 / .55) !important; }
+[data-theme="dark"] .text-emerald-600 { color: #34d399 !important; }
+[data-theme="dark"] .text-red-500, [data-theme="dark"] .text-red-600 { color: #f87171 !important; }
+[data-theme="dark"] .text-emerald-700 { color: #6ee7b7 !important; }
+[data-theme="dark"] .text-red-700 { color: #fca5a5 !important; }
+[data-theme="dark"] .shadow-sm, [data-theme="dark"] .shadow-lg, [data-theme="dark"] .shadow-xl, [data-theme="dark"] .shadow-2xl, [data-theme="dark"] .shadow-inner { --tw-shadow-color: rgb(0 0 0 / .5); }
+/* گرادیان سفیدِ پایین صفحه‌ها در حالت تیره */
+[data-theme="dark"] .from-white { --tw-gradient-from: var(--surface) var(--tw-gradient-from-position); --tw-gradient-to: rgb(20 27 46 / 0) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+[data-theme="dark"] .via-white { --tw-gradient-to: rgb(20 27 46 / 0) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--surface) var(--tw-gradient-via-position), var(--tw-gradient-to); }
+
+/* ============ سفارشی‌ها ============ */
+html { font-size: 18px; }
 .text-\[9px\]  { font-size: .68rem; }
 .text-\[10px\] { font-size: .74rem; }
 .text-\[11px\] { font-size: .8rem; }
@@ -16,11 +65,9 @@ html { font-size: 18px; }
 
 [hidden] { display: none !important; }
 
-input[type=number]::-webkit-inner-spin-button,
-input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number] { -moz-appearance: textfield; }
 
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes sheetIn { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
 .sheet-anim { animation: sheetIn .18s ease; }
-.toast-anim { animation: toastIn .2s ease; }

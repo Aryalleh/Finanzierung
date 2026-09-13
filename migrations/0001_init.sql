@@ -3,15 +3,16 @@
 -- پاکت‌های پیش‌فرض هنگام ثبت‌نام هر کاربر (در ارز پیش‌فرض) توسط Worker ساخته می‌شوند.
 
 CREATE TABLE IF NOT EXISTS users (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  email             TEXT UNIQUE,
-  password_hash     TEXT,
-  password_salt     TEXT,
-  telegram_id       TEXT UNIQUE,
-  telegram_username TEXT,
-  telegram_chat_id  TEXT,
-  display_name      TEXT,
-  created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  email              TEXT UNIQUE,
+  password_hash      TEXT,
+  password_salt      TEXT,
+  telegram_id        TEXT UNIQUE,
+  telegram_username  TEXT,
+  telegram_chat_id   TEXT,
+  telegram_photo_url TEXT,
+  display_name       TEXT,
+  created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -22,13 +23,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS otp_codes (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+-- درخواست‌های ورود تلگرام (تأیید/رد با دکمه)
+CREATE TABLE IF NOT EXISTS login_requests (
+  id         TEXT PRIMARY KEY,
   user_id    INTEGER NOT NULL,
-  code_hash  TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | denied
   consumed   INTEGER NOT NULL DEFAULT 0,
-  attempts   INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

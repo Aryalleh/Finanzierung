@@ -274,10 +274,10 @@ function renderDistRows() {
     return `<div class="bg-slate-50/50 rounded-2xl p-4 border border-slate-100 flex items-center gap-4">
       <div class="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">${escapeHtml(p.emoji)}</div>
       <div class="flex-1 min-w-0"><h3 class="text-sm font-extrabold text-ink leading-tight truncate">${escapeHtml(p.name)}</h3><p class="text-[10px] font-bold text-muted mt-0.5">${fmt(Math.round(share))}</p></div>
-      <div class="flex items-center gap-3">
-        <button type="button" class="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-muted active:bg-brand active:text-white transition-all" data-dist-minus="${p.id}"><i class="fa-solid fa-minus text-[10px]"></i></button>
-        <span class="text-sm font-black text-brand w-10 text-center">${faPct(pct)}</span>
-        <button type="button" class="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-muted active:bg-brand active:text-white transition-all" data-dist-plus="${p.id}"><i class="fa-solid fa-plus text-[10px]"></i></button>
+      <div class="flex flex-col items-center gap-1">
+        <button type="button" class="w-9 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-brand active:bg-brand active:text-white transition-all" data-dist-plus="${p.id}"><i class="fa-solid fa-plus text-xs"></i></button>
+        <span class="text-base font-black text-brand w-12 text-center tabular-nums">${faPct(pct)}</span>
+        <button type="button" class="w-9 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-red-500 active:bg-red-500 active:text-white transition-all" data-dist-minus="${p.id}"><i class="fa-solid fa-minus text-xs"></i></button>
       </div></div>`;
   }).join("");
   $("#distBar").innerHTML = state.pockets.map((p, i) => { const w = totalPct > 0 ? ((distAlloc[p.id] || 0) / totalPct) * 100 : 0; return w > 0 ? `<div class="h-full ${DIST_COLORS[i % DIST_COLORS.length]} border-r border-white/20" style="width:${w}%"></div>` : ""; }).join("");
@@ -407,17 +407,62 @@ $("#loansList").addEventListener("click", async (e) => {
 function applyMonth() { $("#monthLabel").textContent = monthLabel(state.month); $("#monthInput").value = state.month; }
 $("#monthBtn").addEventListener("click", () => { const inp = $("#monthInput"); if (inp.showPicker) { try { inp.showPicker(); return; } catch {} } inp.click(); });
 $("#monthInput").addEventListener("change", () => { state.month = $("#monthInput").value || currentMonth(); applyMonth(); refresh(); });
-function renderCurrencyMenu() {
-  $("#currencyOptions").innerHTML = CURRENCIES.map((c) => `
-    <button data-cur="${c.code}" class="w-full flex items-center justify-between px-4 h-12 rounded-2xl border ${c.code === state.currency ? "border-brand bg-brand/5 text-brand" : "border-slate-100 bg-slate-50 text-ink"} font-bold text-sm transition-all">
-      <span>${c.label}</span><span class="text-base">${c.sym}</span></button>`).join("");
+let ownedCurrencies = [];
+async function renderCurrencyMenu() {
+  let owned = [];
+  try { owned = (await api("/currencies")).currencies; } catch {}
+  ownedCurrencies = owned.map((c) => c.currency);
+  // اطمینان از وجود ارز جاری در فهرست
+  const ownedSet = new Set(ownedCurrencies);
+  const ownedRows = owned.map((c) => {
+    const info = curBy(c.currency);
+    const active = c.currency === state.currency;
+    return `<div class="w-full flex items-center gap-2">
+      <button data-cur="${c.currency}" class="flex-1 flex items-center justify-between px-4 h-12 rounded-2xl border ${active ? "border-brand bg-brand/5 text-brand" : "border-slate-100 bg-slate-50 text-ink"} font-bold text-sm transition-all">
+        <span>${info.label}</span><span class="text-base">${info.sym} · ${fmtC(c.balance, c.currency)}</span></button>
+      <button data-del-cur="${c.currency}" class="w-11 h-12 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center active:scale-95"><i class="fa-solid fa-trash-can text-xs"></i></button>
+    </div>`;
+  }).join("");
+  const addable = CURRENCIES.filter((c) => !ownedSet.has(c.code));
+  const addRows = addable.length ? `
+    <p class="text-[10px] font-black text-muted uppercase tracking-widest pt-2">افزودن ارز جدید</p>
+    <div class="grid grid-cols-2 gap-2">
+      ${addable.map((c) => `<button data-add-cur="${c.code}" class="flex items-center justify-center gap-2 h-11 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-ink text-sm font-bold active:scale-[0.98]"><i class="fa-solid fa-plus text-brand text-xs"></i> ${c.label} ${c.sym}</button>`).join("")}
+    </div>` : "";
+  $("#currencyOptions").innerHTML = (ownedRows || `<p class="text-xs font-bold text-muted text-center py-2">هنوز حسابی ندارید.</p>`) + addRows;
 }
 $("#currencyBtn").addEventListener("click", () => { renderCurrencyMenu(); openModal("#currencyMenu"); });
-$("#currencyOptions").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-cur]");
-  if (!b) return;
-  state.currency = b.dataset.cur; localStorage.setItem("fin_currency", state.currency);
-  applyCurrencyLabel(); closeModal("#currencyMenu"); refresh();
+$("#currencyOptions").addEventListener("click", async (e) => {
+  const sw = e.target.closest("[data-cur]");
+  const add = e.target.closest("[data-add-cur]");
+  const del = e.target.closest("[data-del-cur]");
+  if (sw) {
+    state.currency = sw.dataset.cur; localStorage.setItem("fin_currency", state.currency);
+    applyCurrencyLabel(); closeModal("#currencyMenu"); refresh(); return;
+  }
+  if (add) {
+    try {
+      await api("/currencies", { method: "POST", body: JSON.stringify({ currency: add.dataset.addCur }) });
+      state.currency = add.dataset.addCur; localStorage.setItem("fin_currency", state.currency);
+      applyCurrencyLabel(); closeModal("#currencyMenu"); toast("حساب ارزی ساخته شد ✅"); refresh();
+    } catch (err) { toast(err.message); }
+    return;
+  }
+  if (del) {
+    const code = del.dataset.delCur;
+    if (!confirm(`حساب ${curBy(code).label} و همه‌ی پاکت‌ها و تراکنش‌های آن حذف شود؟`)) return;
+    try {
+      await api(`/currencies/${code}`, { method: "DELETE" });
+      toast("حساب ارزی حذف شد");
+      if (state.currency === code) {
+        const rest = ownedCurrencies.filter((c) => c !== code);
+        state.currency = rest[0] || "IRT";
+        localStorage.setItem("fin_currency", state.currency);
+        applyCurrencyLabel();
+      }
+      renderCurrencyMenu(); refresh();
+    } catch (err) { toast(err.message); }
+  }
 });
 function applyCurrencyLabel() { const c = cur(); $("#currencyLabel").textContent = `${c.sym} ${c.label}`; }
 
@@ -432,9 +477,9 @@ $$("[data-nav]").forEach((b) => b.addEventListener("click", () => {
 $("#bellBtn").addEventListener("click", () => toast("اعلان جدیدی ندارید"));
 $("#avatarBtn").addEventListener("click", openProfile);
 function openProfile() {
-  const name = state.user?.display_name || state.user?.email || (state.user?.telegram_username ? "@" + state.user.telegram_username : "");
-  $("#profileEmail").textContent = name;
-  $("#profileAvatar").textContent = (name.replace(/^@/, "")[0] || "؟").toUpperCase();
+  $("#profileEmail").textContent = userName(state.user);
+  $("#profileAvatar").innerHTML = avatarInner(state.user);
+  syncThemeButtons();
   openModal("#profileMenu");
 }
 $("#logoutBtn").addEventListener("click", async () => {
@@ -474,24 +519,30 @@ function setAuthMode(mode) {
   $("#authError").hidden = true;
 }
 function showEmailAuth() {
-  $("#otpForm").hidden = true;
+  stopTgPoll();
+  $("#tgForm").hidden = true;
   $("#authForm").hidden = false; $("#authSwitch").hidden = false; $("#tgSection").hidden = false;
 }
-function showOtpAuth() {
+function showTgAuth() {
   $("#authForm").hidden = true; $("#authSwitch").hidden = true; $("#tgSection").hidden = true;
-  $("#otpForm").hidden = false; $("#otpStep1").hidden = false; $("#otpStep2").hidden = true;
-  $("#otpSubmit").textContent = "ارسال کد"; $("#otpError").hidden = true; $("#otpHint").textContent = "";
-  otpStage = 1;
+  $("#tgForm").hidden = false; $("#tgStep1").hidden = false; $("#tgStep2").hidden = true;
+  $("#tgSubmit").hidden = false; $("#tgSubmit").textContent = "ارسال درخواست"; $("#tgError").hidden = true;
 }
 function showAuth() {
   $("#appScreen").hidden = true; $("#distributeScreen").hidden = true; $("#loansScreen").hidden = true;
   $("#authScreen").hidden = false; showEmailAuth();
 }
+function userName(u) { return u?.display_name || u?.email || (u?.telegram_username ? "@" + u.telegram_username : ""); }
+function avatarInner(u) {
+  if (u?.photo_url) return `<img src="${escapeHtml(u.photo_url)}" alt="" class="w-full h-full object-cover" referrerpolicy="no-referrer">`;
+  return (userName(u).replace(/^@/, "")[0] || "؟").toUpperCase();
+}
 function showApp() {
+  stopTgPoll();
   $("#authScreen").hidden = true; $("#appScreen").hidden = false;
-  const name = state.user?.display_name || state.user?.email || (state.user?.telegram_username ? "@" + state.user.telegram_username : "");
+  const name = userName(state.user);
   $("#userGreet").textContent = name ? "، " + name.replace(/^@/, "").split("@")[0] : "";
-  $("#avatarBtn").textContent = (name.replace(/^@/, "")[0] || "؟").toUpperCase();
+  $("#avatarBtn").innerHTML = avatarInner(state.user);
   applyMonth(); applyCurrencyLabel(); refresh();
 }
 $("#authToggle").addEventListener("click", () => setAuthMode(authMode === "login" ? "register" : "login"));
@@ -524,33 +575,76 @@ async function telegramMiniAppLogin() {
     state.user = data.user; showApp(); return true;
   } catch (err) { toast(err.message); return false; }
 }
-let otpStage = 1;
-$("#tgLoginBtn").addEventListener("click", () => { if (inTelegram) telegramMiniAppLogin(); else showOtpAuth(); });
-$("#otpBack").addEventListener("click", showEmailAuth);
-$("#otpForm").addEventListener("submit", async (e) => {
+let tgPollTimer = null;
+function stopTgPoll() { if (tgPollTimer) { clearInterval(tgPollTimer); tgPollTimer = null; } }
+$("#tgLoginBtn").addEventListener("click", () => { if (inTelegram) telegramMiniAppLogin(); else showTgAuth(); });
+$("#tgBack").addEventListener("click", showEmailAuth);
+$("#tgForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const errEl = $("#otpError"); errEl.hidden = true;
-  const btn = $("#otpSubmit"), orig = btn.textContent; btn.disabled = true; btn.textContent = "لطفاً صبر کنید…";
+  const errEl = $("#tgError"); errEl.hidden = true;
+  const identifier = $("#tgIdentifier").value.trim();
+  if (!identifier) { errEl.textContent = "نام کاربری تلگرام را وارد کنید"; errEl.hidden = false; return; }
+  const btn = $("#tgSubmit"); btn.disabled = true; btn.textContent = "لطفاً صبر کنید…";
   try {
-    const identifier = $("#otpIdentifier").value.trim();
-    if (otpStage === 1) {
-      if (!identifier) throw new Error("نام کاربری تلگرام را وارد کنید");
-      const r = await api("/auth/telegram/request-otp", { method: "POST", body: JSON.stringify({ identifier }) });
-      $("#otpStep2").hidden = false; $("#otpSubmit").textContent = "ورود"; otpStage = 2;
-      $("#otpHint").textContent = r.dev_code ? `کد تست: ${r.dev_code}` : "کد به تلگرام شما ارسال شد.";
-      setTimeout(() => $("#otpCode").focus(), 60);
-    } else {
-      const code = $("#otpCode").value.trim();
-      if (!code) throw new Error("کد را وارد کنید");
-      const r = await api("/auth/telegram/verify-otp", { method: "POST", body: JSON.stringify({ identifier, code }) });
-      state.user = r.user; showApp();
+    const r = await api("/auth/telegram/request-login", { method: "POST", body: JSON.stringify({ identifier }) });
+    $("#tgStep1").hidden = true; $("#tgStep2").hidden = false; btn.hidden = true;
+    if (r.dev) {
+      // حالت توسعه: تأیید خودکار برای تست
+      setTimeout(() => api("/auth/telegram/dev-approve", { method: "POST", body: JSON.stringify({ token: r.token }) }).catch(() => {}), 800);
     }
-  } catch (err) { errEl.textContent = err.message; errEl.hidden = false; }
-  finally { btn.disabled = false; btn.textContent = otpStage === 2 ? "ورود" : "ارسال کد"; }
+    startTgPoll(r.token);
+  } catch (err) { errEl.textContent = err.message; errEl.hidden = false; btn.disabled = false; btn.textContent = "ارسال درخواست"; }
 });
+function startTgPoll(token) {
+  stopTgPoll();
+  let tries = 0;
+  tgPollTimer = setInterval(async () => {
+    tries++;
+    if (tries > 60) { stopTgPoll(); $("#tgError").textContent = "زمان تأیید تمام شد؛ دوباره تلاش کنید"; $("#tgError").hidden = false; showTgAuth(); return; }
+    try {
+      const r = await api(`/auth/telegram/login-status?token=${token}`);
+      if (r.status === "approved") { stopTgPoll(); state.user = r.user; showApp(); }
+      else if (r.status === "denied") { stopTgPoll(); $("#tgError").textContent = "ورود در تلگرام رد شد"; $("#tgError").hidden = false; showTgAuth(); }
+      else if (r.status === "expired") { stopTgPoll(); $("#tgError").textContent = "درخواست منقضی شد"; $("#tgError").hidden = false; showTgAuth(); }
+    } catch {}
+  }, 2000);
+}
+
+/* ============ تم و پالت ============ */
+function currentThemePref() { return localStorage.getItem("fin_theme") || "system"; }
+function currentPalette() { return localStorage.getItem("fin_palette") || "teal"; }
+function applyTheme() {
+  const pref = currentThemePref();
+  const resolved = pref === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : pref;
+  document.documentElement.setAttribute("data-theme", resolved);
+  document.documentElement.setAttribute("data-palette", currentPalette());
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", resolved === "dark" ? "#0a0f1f" : "#0f766e");
+}
+function syncThemeButtons() {
+  const pref = currentThemePref(), pal = currentPalette();
+  $$("#themeOptions .theme-opt").forEach((b) => {
+    const a = b.dataset.themeOpt === pref;
+    b.classList.toggle("border-brand", a); b.classList.toggle("bg-brand/5", a); b.classList.toggle("text-brand", a);
+    b.classList.toggle("border-slate-100", !a);
+  });
+  $$("#paletteOptions .palette-opt").forEach((b) => {
+    b.classList.toggle("border-brand", b.dataset.paletteOpt === pal);
+  });
+}
+$("#themeOptions").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-theme-opt]"); if (!b) return;
+  localStorage.setItem("fin_theme", b.dataset.themeOpt); applyTheme(); syncThemeButtons();
+});
+$("#paletteOptions").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-palette-opt]"); if (!b) return;
+  localStorage.setItem("fin_palette", b.dataset.paletteOpt); applyTheme(); syncThemeButtons();
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { if (currentThemePref() === "system") applyTheme(); });
 
 /* ============ شروع ============ */
 async function init() {
+  applyTheme();
   applyCurrencyLabel();
   if (tg) { try { tg.ready(); tg.expand(); } catch {} }
   try {

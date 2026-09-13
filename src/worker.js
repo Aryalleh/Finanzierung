@@ -9,7 +9,7 @@
 const COOKIE_NAME = "fin_session";
 const SESSION_TTL_DAYS = 30;
 const PBKDF2_ITERATIONS = 100000;
-const OTP_TTL_MIN = 5;
+const LOGIN_REQUEST_TTL_MIN = 3;
 const CURRENCIES = ["IRT", "IRR", "EUR", "USD", "TRY"];
 const DEFAULT_CURRENCY = "IRT";
 
@@ -84,6 +84,7 @@ async function ensureSchema(db) {
       telegram_id TEXT UNIQUE,
       telegram_username TEXT,
       telegram_chat_id TEXT,
+      telegram_photo_url TEXT,
       display_name TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`),
@@ -91,10 +92,10 @@ async function ensureSchema(db) {
       id TEXT PRIMARY KEY, user_id INTEGER NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')), expires_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS otp_codes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
-      code_hash TEXT NOT NULL, expires_at TEXT NOT NULL, consumed INTEGER NOT NULL DEFAULT 0,
-      attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    db.prepare(`CREATE TABLE IF NOT EXISTS login_requests (
+      id TEXT PRIMARY KEY, user_id INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending', consumed INTEGER NOT NULL DEFAULT 0,
+      expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS pockets (
       id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER NOT NULL,
@@ -150,7 +151,7 @@ async function getUser(req, db) {
   const token = parseCookies(req)[COOKIE_NAME];
   if (!token) return null;
   return db.prepare(
-    `SELECT u.id, u.email, u.telegram_username, u.telegram_id, u.display_name
+    `SELECT u.id, u.email, u.telegram_username, u.telegram_id, u.display_name, u.telegram_photo_url
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.id = ? AND s.expires_at > datetime('now')`
   ).bind(token).first();
@@ -162,7 +163,7 @@ async function createSession(db, userId, req) {
   return sessionCookie(token, req);
 }
 function publicUser(u) {
-  return { id: u.id, email: u.email || null, telegram_username: u.telegram_username || null, display_name: u.display_name || null };
+  return { id: u.id, email: u.email || null, telegram_username: u.telegram_username || null, display_name: u.display_name || null, photo_url: u.telegram_photo_url || null };
 }
 async function userByIdentifier(db, idRaw) {
   const id = (idRaw || "").toString().trim();
@@ -203,17 +204,22 @@ async function verifyTelegramInitData(initData, botToken) {
   if (!authDate || Date.now() - authDate > 86400 * 1000) return null; // حداکثر یک روز
   try { return JSON.parse(params.get("user")); } catch { return null; }
 }
-async function sendTelegramMessage(botToken, chatId, text) {
+async function sendTelegramMessage(botToken, chatId, text, replyMarkup) {
   try {
+    const body = { chat_id: chatId, text };
+    if (replyMarkup) body.reply_markup = replyMarkup;
     const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     });
     return res.ok;
-  } catch {
-    return false; // خطای شبکه نباید صدور کد را متوقف کند
-  }
+  } catch { return false; }
+}
+async function telegramApi(botToken, method, payload) {
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+    });
+  } catch {}
 }
 
 /* ============ روتر احراز هویت ============ */
@@ -277,51 +283,67 @@ async function handleAuth(req, env, db, segments) {
 
       const tgId = String(tgUser.id);
       const uname = tgUser.username || null;
+      const photo = tgUser.photo_url || null;
       const display = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") || uname || "کاربر تلگرام";
       let u = await db.prepare(`SELECT * FROM users WHERE telegram_id = ?`).bind(tgId).first();
       if (u) {
-        await db.prepare(`UPDATE users SET telegram_username=?, telegram_chat_id=?, display_name=COALESCE(display_name,?) WHERE id=?`)
-          .bind(uname, tgId, display, u.id).run();
+        await db.prepare(`UPDATE users SET telegram_username=?, telegram_chat_id=?, telegram_photo_url=?, display_name=COALESCE(display_name,?) WHERE id=?`)
+          .bind(uname, tgId, photo, display, u.id).run();
+        u.telegram_photo_url = photo;
       } else {
-        const res = await db.prepare(`INSERT INTO users (telegram_id, telegram_username, telegram_chat_id, display_name) VALUES (?,?,?,?)`)
-          .bind(tgId, uname, tgId, display).run();
-        u = { id: res.meta.last_row_id, email: null, telegram_username: uname, display_name: display };
+        const res = await db.prepare(`INSERT INTO users (telegram_id, telegram_username, telegram_chat_id, telegram_photo_url, display_name) VALUES (?,?,?,?,?)`)
+          .bind(tgId, uname, tgId, photo, display).run();
+        u = { id: res.meta.last_row_id, email: null, telegram_username: uname, display_name: display, telegram_photo_url: photo };
         await seedPockets(db, u.id, DEFAULT_CURRENCY);
       }
       const cookie = await createSession(db, u.id, req);
       return json({ user: publicUser(u) }, 200, { "Set-Cookie": cookie });
     }
 
-    if (sub === "request-otp" && method === "POST") {
+    // درخواست ورود: پیام تأیید/رد به تلگرام کاربر می‌رود
+    if (sub === "request-login" && method === "POST") {
       const b = await req.json().catch(() => ({}));
       const u = await userByIdentifier(db, b.identifier);
       if (!u || !u.telegram_chat_id)
         return json({ error: "کاربر تلگرامی با این مشخصات یافت نشد؛ ابتدا از مینی‌اپ تلگرام وارد شوید" }, 404);
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      const codeHash = await sha256hex(code + ":" + u.id);
-      const expires = new Date(Date.now() + OTP_TTL_MIN * 60000).toISOString();
-      await db.prepare(`DELETE FROM otp_codes WHERE user_id = ?`).bind(u.id).run();
-      await db.prepare(`INSERT INTO otp_codes (user_id, code_hash, expires_at) VALUES (?,?,?)`).bind(u.id, codeHash, expires).run();
-      let sent = false;
-      if (token) sent = await sendTelegramMessage(token, u.telegram_chat_id, `کد ورود شما به مدیریت حقوق ماهانه:\n\n${code}\n\nاعتبار: ${OTP_TTL_MIN} دقیقه`);
-      const out = { ok: true, sent };
-      if (devMode) out.dev_code = code; // فقط در حالت توسعه
+      const reqToken = randomToken();
+      const expires = new Date(Date.now() + LOGIN_REQUEST_TTL_MIN * 60000).toISOString();
+      await db.prepare(`DELETE FROM login_requests WHERE user_id = ? AND status='pending'`).bind(u.id).run();
+      await db.prepare(`INSERT INTO login_requests (id, user_id, expires_at) VALUES (?,?,?)`).bind(reqToken, u.id, expires).run();
+      if (token) {
+        await sendTelegramMessage(token, u.telegram_chat_id,
+          `درخواست ورود به «مدیریت حقوق ماهانه»\n\nاگر شما هستید تأیید کنید، در غیر این صورت رد کنید. (اعتبار ${LOGIN_REQUEST_TTL_MIN} دقیقه)`,
+          { inline_keyboard: [[
+            { text: "✅ تأیید ورود", callback_data: "approve:" + reqToken },
+            { text: "❌ رد", callback_data: "deny:" + reqToken },
+          ]] });
+      }
+      const out = { ok: true, token: reqToken };
+      if (devMode) out.dev = true; // در حالت توسعه می‌توان مستقیم تأیید کرد
       return json(out);
     }
 
-    if (sub === "verify-otp" && method === "POST") {
+    // نتیجه‌ی درخواست ورود (کلاینت poll می‌کند)
+    if (sub === "login-status" && method === "GET") {
+      const reqToken = new URL(req.url).searchParams.get("token");
+      if (!reqToken) return badRequest("توکن ارسال نشد");
+      const lr = await db.prepare(`SELECT * FROM login_requests WHERE id = ?`).bind(reqToken).first();
+      if (!lr || lr.consumed) return json({ status: "expired" });
+      if (lr.expires_at <= new Date().toISOString()) return json({ status: "expired" });
+      if (lr.status === "approved") {
+        await db.prepare(`UPDATE login_requests SET consumed = 1 WHERE id = ?`).bind(reqToken).run();
+        const u = await db.prepare(`SELECT * FROM users WHERE id = ?`).bind(lr.user_id).first();
+        const cookie = await createSession(db, u.id, req);
+        return json({ status: "approved", user: publicUser(u) }, 200, { "Set-Cookie": cookie });
+      }
+      return json({ status: lr.status });
+    }
+
+    // فقط برای حالت توسعه: تأیید مستقیم بدون تلگرام
+    if (sub === "dev-approve" && method === "POST" && devMode) {
       const b = await req.json().catch(() => ({}));
-      const u = await userByIdentifier(db, b.identifier);
-      if (!u) return json({ error: "کاربر یافت نشد" }, 404);
-      const row = await db.prepare(`SELECT * FROM otp_codes WHERE user_id = ? ORDER BY id DESC LIMIT 1`).bind(u.id).first();
-      if (!row || row.consumed || row.expires_at <= new Date().toISOString()) return json({ error: "کد منقضی شده است؛ دوباره درخواست کنید" }, 400);
-      if (row.attempts >= 5) return json({ error: "تعداد تلاش بیش از حد؛ دوباره درخواست کنید" }, 429);
-      await db.prepare(`UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?`).bind(row.id).run();
-      const codeHash = await sha256hex((b.code || "").toString().trim() + ":" + u.id);
-      if (!safeEqual(codeHash, row.code_hash)) return json({ error: "کد نادرست است" }, 401);
-      await db.prepare(`UPDATE otp_codes SET consumed = 1 WHERE id = ?`).bind(row.id).run();
-      const cookie = await createSession(db, u.id, req);
-      return json({ user: publicUser(u) }, 200, { "Set-Cookie": cookie });
+      await db.prepare(`UPDATE login_requests SET status='approved' WHERE id = ? AND status='pending'`).bind(b.token).run();
+      return json({ ok: true });
     }
   }
 
@@ -344,17 +366,42 @@ async function handleData(req, db, uid, segments) {
   const id = segments[2];
   const sub = segments[3];
 
-  /* --- فهرست ارزها --- */
-  if (resource === "currencies" && method === "GET") {
-    const { results } = await db.prepare(
-      `SELECT p.currency AS currency,
-              COUNT(DISTINCT p.id) AS pockets,
-              COALESCE(SUM(CASE WHEN t.type='income' THEN t.amount END),0) - COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount END),0) AS balance
-       FROM pockets p JOIN pocket_members pm ON pm.pocket_id=p.id AND pm.user_id=?1
-       LEFT JOIN transactions t ON t.pocket_id=p.id
-       GROUP BY p.currency ORDER BY p.currency`
-    ).bind(uid).all();
-    return json({ currencies: results });
+  /* --- ارزها --- */
+  if (resource === "currencies") {
+    if (method === "GET" && !id) {
+      const { results } = await db.prepare(
+        `SELECT p.currency AS currency,
+                COUNT(DISTINCT p.id) AS pockets,
+                COALESCE(SUM(CASE WHEN t.type='income' THEN t.amount END),0) - COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount END),0) AS balance
+         FROM pockets p JOIN pocket_members pm ON pm.pocket_id=p.id AND pm.user_id=?1
+         LEFT JOIN transactions t ON t.pocket_id=p.id
+         GROUP BY p.currency ORDER BY p.currency`
+      ).bind(uid).all();
+      return json({ currencies: results });
+    }
+    // ساخت حساب یک ارز (با پاکت‌های پیش‌فرض)
+    if (method === "POST" && !id) {
+      const b = await req.json().catch(() => ({}));
+      const currency = validCurrency(b.currency);
+      const existing = await db.prepare(`SELECT COUNT(*) AS c FROM pockets WHERE owner_id=? AND currency=?`).bind(uid, currency).first();
+      if (existing.c === 0) await seedPockets(db, uid, currency);
+      return json({ ok: true, currency }, 201);
+    }
+    // حذف حساب یک ارز: پاکت‌های متعلق به کاربر در آن ارز و عضویت‌های او در پاکت‌های مشترک همان ارز
+    if (method === "DELETE" && id) {
+      const currency = validCurrency(id);
+      const { results: owned } = await db.prepare(`SELECT id FROM pockets WHERE owner_id=? AND currency=?`).bind(uid, currency).all();
+      for (const p of owned) {
+        await db.prepare(`DELETE FROM transactions WHERE pocket_id=?`).bind(p.id).run();
+        await db.prepare(`DELETE FROM pocket_members WHERE pocket_id=?`).bind(p.id).run();
+        await db.prepare(`DELETE FROM pockets WHERE id=?`).bind(p.id).run();
+      }
+      // خروج از پاکت‌های مشترکِ متعلق به دیگران در این ارز
+      await db.prepare(
+        `DELETE FROM pocket_members WHERE user_id=? AND role<>'owner' AND pocket_id IN (SELECT id FROM pockets WHERE currency=?)`
+      ).bind(uid, currency).run();
+      return json({ ok: true });
+    }
   }
 
   /* --- پاکت‌ها --- */
@@ -641,11 +688,39 @@ async function handleData(req, db, uid, segments) {
   return notFound("مسیر API یافت نشد");
 }
 
+// وب‌هوک تلگرام: مدیریت دکمه‌های تأیید/رد ورود
+async function handleTelegramWebhook(req, env, db) {
+  if (req.method !== "POST") return notFound();
+  const secret = env.TELEGRAM_WEBHOOK_SECRET;
+  if (secret && req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== secret) return unauthorized("secret نامعتبر");
+  const update = await req.json().catch(() => ({}));
+  const cq = update.callback_query;
+  if (!cq || !cq.data) return json({ ok: true });
+  const [action, reqToken] = cq.data.split(":");
+  const fromId = String(cq.from?.id || "");
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (action === "approve" || action === "deny") {
+    const lr = await db.prepare(`SELECT lr.*, u.telegram_id FROM login_requests lr JOIN users u ON u.id=lr.user_id WHERE lr.id=?`).bind(reqToken).first();
+    let text = "این درخواست معتبر نیست یا منقضی شده.";
+    if (lr && !lr.consumed && lr.status === "pending" && lr.expires_at > new Date().toISOString() && String(lr.telegram_id) === fromId) {
+      const status = action === "approve" ? "approved" : "denied";
+      await db.prepare(`UPDATE login_requests SET status=? WHERE id=?`).bind(status, reqToken).run();
+      text = action === "approve" ? "✅ ورود تأیید شد. به مرورگر برگردید." : "❌ ورود رد شد.";
+    }
+    if (token) {
+      await telegramApi(token, "answerCallbackQuery", { callback_query_id: cq.id, text });
+      if (cq.message) await telegramApi(token, "editMessageText", { chat_id: cq.message.chat.id, message_id: cq.message.message_id, text });
+    }
+  }
+  return json({ ok: true });
+}
+
 async function handleApi(req, env, path) {
   const db = env.DB;
   await ensureSchema(db);
   const segments = path.split("/").filter(Boolean);
   if (segments[1] === "health") return json({ ok: true, name: "finanzierung", time: new Date().toISOString() });
+  if (segments[1] === "telegram" && segments[2] === "webhook") return handleTelegramWebhook(req, env, db);
   if (segments[1] === "auth") return handleAuth(req, env, db, segments);
   const user = await getUser(req, db);
   if (!user) return unauthorized();

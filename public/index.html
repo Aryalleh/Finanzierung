@@ -15,6 +15,18 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 <link rel="stylesheet" href="/styles.css">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+  // اعمال تم و پالت پیش از رنگ‌آمیزی (جلوگیری از پرش)
+  (function () {
+    try {
+      var t = localStorage.getItem("fin_theme");
+      if (!t || t === "system") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", t);
+      var p = localStorage.getItem("fin_palette") || "teal";
+      document.documentElement.setAttribute("data-palette", p);
+    } catch (e) {}
+  })();
+</script>
 </head>
 <body class="bg-[#f1f5f9] text-ink font-sans antialiased">
 
@@ -75,24 +87,24 @@
         </button>
       </div>
 
-      <!-- فرم OTP تلگرام (در مرورگر) -->
-      <form id="otpForm" class="space-y-4 relative" hidden>
+      <!-- ورود با تلگرام در مرورگر: تأیید/رد -->
+      <form id="tgForm" class="space-y-4 relative" hidden>
         <div class="flex items-center gap-2">
-          <button type="button" id="otpBack" class="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-muted"><i class="fa-solid fa-arrow-right text-xs"></i></button>
-          <p class="text-xs font-bold text-slate-500">ورود با کد یک‌بارمصرف تلگرام</p>
+          <button type="button" id="tgBack" class="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-muted"><i class="fa-solid fa-arrow-right text-xs"></i></button>
+          <p class="text-xs font-bold text-slate-500">ورود با تأیید در تلگرام</p>
         </div>
-        <div id="otpStep1" class="space-y-1.5">
+        <div id="tgStep1" class="space-y-1.5">
           <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">نام کاربری تلگرام</label>
-          <input id="otpIdentifier" type="text" placeholder="@username" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand" dir="ltr">
-          <p class="text-[10px] font-bold text-slate-400 mt-1">برای دریافت کد باید قبلاً از مینی‌اپ تلگرام وارد شده باشید.</p>
+          <input id="tgIdentifier" type="text" placeholder="@username" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand" dir="ltr">
+          <p class="text-[10px] font-bold text-slate-400 mt-1">پیام تأیید به تلگرام شما ارسال می‌شود. (ابتدا باید از مینی‌اپ وارد شده باشید.)</p>
         </div>
-        <div id="otpStep2" class="space-y-1.5" hidden>
-          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">کد ۶ رقمی</label>
-          <input id="otpCode" type="text" inputmode="numeric" maxlength="6" placeholder="------" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-lg font-black text-center tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand" dir="ltr">
-          <p id="otpHint" class="text-[10px] font-bold text-emerald-600 mt-1"></p>
+        <div id="tgStep2" class="text-center py-4 space-y-3" hidden>
+          <div class="w-12 h-12 mx-auto rounded-full border-4 border-brand/20 border-t-brand animate-spin"></div>
+          <p class="text-sm font-bold text-ink">در انتظار تأیید در تلگرام…</p>
+          <p class="text-[11px] font-bold text-muted">در تلگرام روی «✅ تأیید ورود» بزنید.</p>
         </div>
-        <p id="otpError" class="text-xs font-bold text-red-600 bg-red-50 rounded-xl px-3 py-2 text-center" hidden></p>
-        <button id="otpSubmit" type="submit" class="w-full py-3.5 bg-brand text-white rounded-2xl font-black text-sm active:scale-[0.98] transition-all">ارسال کد</button>
+        <p id="tgError" class="text-xs font-bold text-red-600 bg-red-50 rounded-xl px-3 py-2 text-center" hidden></p>
+        <button id="tgSubmit" type="submit" class="w-full py-3.5 bg-brand text-white rounded-2xl font-black text-sm active:scale-[0.98] transition-all">ارسال درخواست</button>
       </form>
     </div>
     <p class="text-center text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">مدیریت حقوق ماهانه</p>
@@ -115,7 +127,7 @@
       <button id="bellBtn" class="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-muted hover:text-ink transition-colors relative">
         <i class="fa-regular fa-bell"></i>
       </button>
-      <button id="avatarBtn" class="w-10 h-10 rounded-xl bg-brand/10 text-brand font-black flex items-center justify-center ring-1 ring-slate-100"></button>
+      <button id="avatarBtn" class="w-10 h-10 rounded-xl bg-brand/10 text-brand font-black flex items-center justify-center ring-1 ring-slate-100 overflow-hidden"></button>
     </div>
   </header>
 
@@ -344,12 +356,39 @@
   <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" data-close></div>
   <div class="relative w-full max-w-md bg-white rounded-t-[32px] p-6 space-y-4 sheet-anim">
     <div class="flex items-center gap-3">
-      <div id="profileAvatar" class="w-12 h-12 rounded-2xl bg-brand/10 text-brand font-black flex items-center justify-center text-lg"></div>
+      <div id="profileAvatar" class="w-12 h-12 rounded-2xl bg-brand/10 text-brand font-black flex items-center justify-center text-lg overflow-hidden"></div>
       <div>
         <p class="text-sm font-extrabold text-ink">حساب کاربری</p>
         <p id="profileEmail" class="text-xs font-bold text-muted"></p>
       </div>
     </div>
+
+    <!-- تم -->
+    <div class="space-y-2">
+      <p class="text-[10px] font-black text-muted uppercase tracking-widest">حالت نمایش</p>
+      <div class="grid grid-cols-3 gap-2" id="themeOptions">
+        <button data-theme-opt="light" class="theme-opt h-11 rounded-xl border border-slate-100 bg-slate-50 text-ink text-xs font-bold flex items-center justify-center gap-2"><i class="fa-solid fa-sun"></i> روشن</button>
+        <button data-theme-opt="dark" class="theme-opt h-11 rounded-xl border border-slate-100 bg-slate-50 text-ink text-xs font-bold flex items-center justify-center gap-2"><i class="fa-solid fa-moon"></i> تیره</button>
+        <button data-theme-opt="system" class="theme-opt h-11 rounded-xl border border-slate-100 bg-slate-50 text-ink text-xs font-bold flex items-center justify-center gap-2"><i class="fa-solid fa-circle-half-stroke"></i> سیستم</button>
+      </div>
+    </div>
+
+    <!-- پالت رنگ -->
+    <div class="space-y-2">
+      <p class="text-[10px] font-black text-muted uppercase tracking-widest">پالت رنگ</p>
+      <div class="grid grid-cols-3 gap-2" id="paletteOptions">
+        <button data-palette-opt="teal" class="palette-opt h-14 rounded-xl border-2 border-transparent bg-slate-50 flex items-center justify-center gap-1">
+          <span class="w-5 h-5 rounded-full" style="background:#0f766e"></span><span class="w-5 h-5 rounded-full" style="background:#14b8a6"></span>
+        </button>
+        <button data-palette-opt="purple" class="palette-opt h-14 rounded-xl border-2 border-transparent bg-slate-50 flex items-center justify-center gap-1">
+          <span class="w-5 h-5 rounded-full" style="background:#9929EA"></span><span class="w-5 h-5 rounded-full" style="background:#FF5FCF"></span>
+        </button>
+        <button data-palette-opt="winter" class="palette-opt h-14 rounded-xl border-2 border-transparent bg-slate-50 flex items-center justify-center gap-1">
+          <span class="w-5 h-5 rounded-full" style="background:#1B2CC1"></span><span class="w-5 h-5 rounded-full" style="background:#7692FF"></span>
+        </button>
+      </div>
+    </div>
+
     <button id="logoutBtn" class="w-full h-14 bg-red-50 text-red-600 rounded-2xl font-black text-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2">
       <i class="fa-solid fa-arrow-right-from-bracket"></i> خروج از حساب
     </button>
