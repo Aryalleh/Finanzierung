@@ -144,9 +144,19 @@ async function refresh() {
 }
 
 function renderSummary(s) {
-  $("#sumBalance").textContent = fmt(s.balance);
+  const net = s.net_balance != null ? s.net_balance : s.balance;
+  $("#sumBalance").textContent = fmt(net);
+  $("#sumBalance").className = "text-base font-extrabold tracking-tighter " + (net < 0 ? "text-red-500" : "text-brand-700");
   $("#sumIncome").textContent = fmtSigned(s.period_income, "+") + " " + cur().sym;
   $("#sumExpense").textContent = fmtSigned(s.period_expense, "−") + " " + cur().sym;
+  const note = $("#balanceNote");
+  const lent = s.lent_outstanding || 0, borrowed = s.borrowed_outstanding || 0;
+  if (lent > 0 || borrowed > 0) {
+    note.hidden = false;
+    note.innerHTML =
+      (lent > 0 ? `<span class="text-red-500">− قرض داده ${fmtNum(lent)}</span>` : "") +
+      (borrowed > 0 ? `<span class="text-emerald-600">+ قرض گرفته ${fmtNum(borrowed)}</span>` : "");
+  } else note.hidden = true;
 }
 
 function renderPockets(pockets) {
@@ -366,7 +376,14 @@ function renderDistRows() {
 $("#distAmount").addEventListener("input", renderDistRows);
 $("#distRows").addEventListener("click", (e) => {
   const plus = e.target.closest("[data-dist-plus]"), minus = e.target.closest("[data-dist-minus]");
-  if (plus) { const id = plus.dataset.distPlus; distAlloc[id] = Math.min(100, (distAlloc[id] || 0) + 1); renderDistRows(); }
+  if (plus) {
+    const id = plus.dataset.distPlus;
+    const total = Object.values(distAlloc).reduce((s, v) => s + v, 0);
+    const room = 100 - total;
+    if (room <= 0) { toast("مجموع درصدها نمی‌تواند بیش از ۱۰۰٪ شود"); return; }
+    distAlloc[id] = Math.min(100, (distAlloc[id] || 0) + Math.min(1, room));
+    renderDistRows();
+  }
   if (minus) { const id = minus.dataset.distMinus; distAlloc[id] = Math.max(0, (distAlloc[id] || 0) - 1); renderDistRows(); }
 });
 $("#distReset").addEventListener("click", resetDistDefaults);

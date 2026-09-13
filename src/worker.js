@@ -753,9 +753,18 @@ async function handleData(req, db, uid, segments) {
        JOIN pocket_members pm ON pm.pocket_id=p.id AND pm.user_id=?1
        WHERE p.currency=?4`
     ).bind(uid, start, end, currency).first();
+    // اثر قرض روی موجودی: قرضِ داده‌شده‌ی وصول‌نشده از موجودی کم، قرضِ گرفته‌شده اضافه می‌شود
+    const loan = await db.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN lender_id=?1 THEN amount-repaid END),0) AS lent_out,
+              COALESCE(SUM(CASE WHEN borrower_id=?1 THEN amount-repaid END),0) AS borrowed_out
+       FROM loans WHERE currency=?2 AND status='active'`
+    ).bind(uid, currency).first();
+    const pocketBalance = row.all_income - row.all_expense;
     return json({
-      balance: row.all_income - row.all_expense, total_income: row.all_income, total_expense: row.all_expense,
+      balance: pocketBalance, total_income: row.all_income, total_expense: row.all_expense,
       period_income: row.period_income, period_expense: row.period_expense,
+      lent_outstanding: loan.lent_out, borrowed_outstanding: loan.borrowed_out,
+      net_balance: pocketBalance - loan.lent_out + loan.borrowed_out,
     });
   }
 
