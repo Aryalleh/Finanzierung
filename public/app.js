@@ -1,4 +1,4 @@
-/* Finanzierung — منطق سمت کلاینت (نسخه‌ی طراحی جدید) */
+/* Finanzierung — منطق سمت کلاینت */
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -18,89 +18,57 @@ const state = {
   user: null,
 };
 
-function currentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
+const tg = window.Telegram?.WebApp;
+const inTelegram = !!(tg && tg.initData && tg.initData.length > 10);
+
+function currentMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
 function today() { return new Date().toISOString().slice(0, 10); }
 
-/* ---- تبدیل ارقام و قالب‌بندی ---- */
+/* ---- ارقام و قالب‌بندی ---- */
 function toEnDigits(s) {
-  return String(s)
-    .replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d))
-    .replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+  return String(s).replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)).replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
 }
-function parseNum(v) {
-  const n = Number(toEnDigits(v).replace(/[^0-9.\-]/g, ""));
-  return Number.isFinite(n) ? n : NaN;
-}
-function cur() { return CURRENCIES.find((c) => c.code === state.currency) || CURRENCIES[0]; }
-function fmtNum(n) {
-  const c = cur();
-  return new Intl.NumberFormat("fa-IR", { maximumFractionDigits: c.dec, minimumFractionDigits: 0 }).format(Number(n) || 0);
-}
-function fmt(n) { return `${fmtNum(n)} ${cur().sym}`; }
+function parseNum(v) { const n = Number(toEnDigits(v).replace(/[^0-9.\-]/g, "")); return Number.isFinite(n) ? n : NaN; }
+function curBy(code) { return CURRENCIES.find((c) => c.code === code) || CURRENCIES[0]; }
+function cur() { return curBy(state.currency); }
+function fmtNumC(n, code) { const c = curBy(code); return new Intl.NumberFormat("fa-IR", { maximumFractionDigits: c.dec }).format(Number(n) || 0); }
+function fmtNum(n) { return fmtNumC(n, state.currency); }
+function fmtC(n, code) { return `${fmtNumC(n, code)} ${curBy(code).sym}`; }
+function fmt(n) { return fmtC(n, state.currency); }
 function fmtSigned(n, sign) { return `${sign}${fmtNum(Math.abs(n))}`; }
 function faPct(n) { return new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 1 }).format(Number(n) || 0) + "٪"; }
 function faInt(n) { return new Intl.NumberFormat("fa-IR").format(Number(n) || 0); }
-function faDate(iso) {
-  try {
-    return new Intl.DateTimeFormat("fa-IR", { day: "numeric", month: "long" }).format(new Date(iso));
-  } catch { return iso; }
-}
-function monthLabel(m) {
-  try {
-    const [y, mo] = m.split("-").map(Number);
-    return new Intl.DateTimeFormat("fa-IR", { year: "numeric", month: "long" }).format(new Date(y, mo - 1, 1));
-  } catch { return m; }
-}
-function escapeHtml(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
+function faDate(iso) { try { return new Intl.DateTimeFormat("fa-IR", { day: "numeric", month: "long" }).format(new Date(iso)); } catch { return iso; } }
+function monthLabel(m) { try { const [y, mo] = m.split("-").map(Number); return new Intl.DateTimeFormat("fa-IR", { year: "numeric", month: "long" }).format(new Date(y, mo - 1, 1)); } catch { return m; } }
+function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function personName(o) { return o.name || o.display_name || (o.username || o.telegram_username ? "@" + (o.username || o.telegram_username) : null) || o.email || "کاربر"; }
 
 /* ---- API ---- */
 class AuthError extends Error {}
 async function api(path, options) {
-  const res = await fetch("/api" + path, {
-    headers: { "content-type": "application/json" },
-    credentials: "same-origin",
-    ...options,
-  });
-  if (res.status === 401) throw new AuthError("نیازمند ورود");
-  if (!res.ok) {
-    let msg = "خطا در ارتباط با سرور";
-    try { const j = await res.json(); msg = j.error || msg; } catch {}
-    throw new Error(msg);
-  }
+  const res = await fetch("/api" + path, { headers: { "content-type": "application/json" }, credentials: "same-origin", ...options });
+  if (res.status === 401 && !path.startsWith("/auth/")) throw new AuthError("نیازمند ورود");
+  if (!res.ok) { let m = "خطا در ارتباط با سرور"; try { const j = await res.json(); m = j.error || m; } catch {} const e = new Error(m); e.status = res.status; throw e; }
   return res.status === 204 ? null : res.json();
 }
 
 /* ---- توست ---- */
 let toastTimer;
-function toast(msg) {
-  const t = $("#toast");
-  t.textContent = msg;
-  t.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), 2600);
-}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2600); }
 
-/* ---- مودال‌ها ---- */
+/* ---- مودال ---- */
 function openModal(id) { $(id).hidden = false; }
 function closeModal(id) { $(id).hidden = true; }
-document.body.addEventListener("click", (e) => {
-  const c = e.target.closest("[data-close]");
-  if (c) { const m = c.closest(".fixed.z-50"); if (m) m.hidden = true; }
-});
+document.body.addEventListener("click", (e) => { const c = e.target.closest("[data-close]"); if (c) { const m = c.closest(".fixed.z-50"); if (m) m.hidden = true; } });
 
-/* ============ بارگذاری داشبورد ============ */
+/* ============ داشبورد ============ */
 async function refresh() {
   try {
+    const q = `currency=${state.currency}`;
     const [p, s, t] = await Promise.all([
-      api(`/pockets?month=${state.month}`),
-      api(`/summary?month=${state.month}`),
-      api(`/transactions?month=${state.month}&limit=20`),
+      api(`/pockets?${q}&month=${state.month}`),
+      api(`/summary?${q}&month=${state.month}`),
+      api(`/transactions?${q}&month=${state.month}&limit=20`),
     ]);
     state.pockets = p.pockets;
     renderSummary(s);
@@ -121,39 +89,30 @@ function renderSummary(s) {
 function renderPockets(pockets) {
   $("#pocketCount").textContent = `${faInt(pockets.length)} پاکت`;
   $("#pocketsEmpty").hidden = pockets.length > 0;
-  const grid = $("#pockets");
-  grid.innerHTML = pockets.map(pocketCard).join("");
+  $("#pockets").innerHTML = pockets.map(pocketCard).join("");
 }
 
 function pocketCard(p) {
-  const allocated = p.period_income;          // بودجه‌ی این ماه = ورودی این ماه
-  const spent = p.period_expense;             // خرج‌شده این ماه
-  const remaining = allocated - spent;
-  const over = spent > allocated;
+  const allocated = p.period_income, spent = p.period_expense, remaining = allocated - spent, over = spent > allocated;
   const pct = allocated > 0 ? Math.min(100, Math.round((spent / allocated) * 100)) : 0;
   const pctLabel = p.min_percent === p.max_percent ? faPct(p.min_percent) : `${faPct(p.min_percent)}–${faPct(p.max_percent)}`;
   const balClass = p.balance < 0 ? "text-red-500" : "text-brand-700";
-
+  const sharedBadge = p.is_shared ? `<span class="text-[10px] font-black text-brand bg-brand/10 px-2 py-0.5 rounded-full flex items-center gap-1"><i class="fa-solid fa-user-group text-[9px]"></i> مشترک · ${faInt(p.member_count)}</span>` : "";
   const progress = allocated > 0 ? `
     <div class="space-y-1.5 mb-5">
-      <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-        <div class="h-full rounded-full ${over ? "bg-red-500" : "bg-brand-500"}" style="width:${over ? 100 : pct}%"></div>
-      </div>
+      <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full rounded-full ${over ? "bg-red-500" : "bg-brand-500"}" style="width:${over ? 100 : pct}%"></div></div>
       <div class="flex justify-between text-[10px] font-bold ${over ? "text-red-600" : "text-muted"}">
         <span>${over ? "بیش از بودجه ماهانه" : `${faPct(pct)} از بودجه ماهانه`}</span>
         <span>${over ? `${fmtNum(Math.abs(remaining))} کسر بودجه` : `${fmtNum(remaining)} مانده`}</span>
       </div>
-    </div>` : `
-    <div class="mb-5"><div class="w-full h-2 bg-slate-100 rounded-full"></div>
-      <p class="text-[10px] font-bold text-muted mt-1.5">این ماه هنوز بودجه‌ای دریافت نشده</p></div>`;
-
+    </div>` : `<div class="mb-5"><div class="w-full h-2 bg-slate-100 rounded-full"></div><p class="text-[10px] font-bold text-muted mt-1.5">این ماه هنوز بودجه‌ای دریافت نشده</p></div>`;
   return `
   <div class="bg-white rounded-[24px] p-5 border border-slate-100 shadow-sm relative overflow-hidden">
     <div class="flex items-start justify-between mb-4">
       <div class="flex items-center gap-3">
         <div class="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner">${escapeHtml(p.emoji)}</div>
         <div>
-          <h3 class="text-sm font-extrabold text-ink leading-tight">${escapeHtml(p.name)}</h3>
+          <div class="flex items-center gap-2 flex-wrap"><h3 class="text-sm font-extrabold text-ink leading-tight">${escapeHtml(p.name)}</h3>${sharedBadge}</div>
           <p class="text-[10px] font-bold text-muted mt-0.5">هدف پیشنهادی: ${pctLabel}</p>
         </div>
       </div>
@@ -165,22 +124,12 @@ function pocketCard(p) {
     </div>
     ${progress}
     <div class="grid grid-cols-2 gap-3">
-      <div class="bg-emerald-50/50 rounded-xl p-2.5 flex flex-col gap-0.5">
-        <span class="text-[9px] font-bold text-emerald-700">ورودی این ماه</span>
-        <span class="text-xs font-black text-emerald-600">${fmtSigned(p.period_income, "+")}</span>
-      </div>
-      <div class="bg-red-50/50 rounded-xl p-2.5 flex flex-col gap-0.5">
-        <span class="text-[9px] font-bold text-red-700">خروجی این ماه</span>
-        <span class="text-xs font-black text-red-500">${fmtSigned(p.period_expense, "−")}</span>
-      </div>
+      <div class="bg-emerald-50/50 rounded-xl p-2.5 flex flex-col gap-0.5"><span class="text-[9px] font-bold text-emerald-700">ورودی این ماه</span><span class="text-xs font-black text-emerald-600">${fmtSigned(p.period_income, "+")}</span></div>
+      <div class="bg-red-50/50 rounded-xl p-2.5 flex flex-col gap-0.5"><span class="text-[9px] font-bold text-red-700">خروجی این ماه</span><span class="text-xs font-black text-red-500">${fmtSigned(p.period_expense, "−")}</span></div>
     </div>
     <div class="grid grid-cols-2 gap-3 mt-4">
-      <button class="h-10 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-colors" data-add-expense="${p.id}">
-        <i class="fa-solid fa-minus text-[10px] text-red-500"></i> خروجی
-      </button>
-      <button class="h-10 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-colors" data-add-income="${p.id}">
-        <i class="fa-solid fa-plus text-[10px] text-emerald-600"></i> ورودی
-      </button>
+      <button class="h-10 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-colors" data-add-expense="${p.id}"><i class="fa-solid fa-minus text-[10px] text-red-500"></i> خروجی</button>
+      <button class="h-10 bg-slate-50 hover:bg-slate-100 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-colors" data-add-income="${p.id}"><i class="fa-solid fa-plus text-[10px] text-emerald-600"></i> ورودی</button>
     </div>
   </div>`;
 }
@@ -189,12 +138,13 @@ function renderTx(list) {
   $("#txEmpty").hidden = list.length > 0;
   $("#txList").innerHTML = list.map((t) => {
     const inc = t.type === "income";
+    const who = t.mine ? "" : ` · ${escapeHtml(personName({ display_name: t.author_name, telegram_username: t.author_username }))}`;
     return `
     <div class="bg-white rounded-2xl p-4 border border-slate-100 flex items-center gap-3">
       <div class="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-lg">${escapeHtml(t.pocket_emoji)}</div>
       <div class="flex-1 min-w-0">
         <p class="text-xs font-extrabold text-ink leading-tight truncate">${escapeHtml(t.note || t.pocket_name)}</p>
-        <p class="text-[10px] font-bold text-muted mt-0.5">${escapeHtml(t.pocket_name)} · ${faDate(t.occurred_on)}</p>
+        <p class="text-[10px] font-bold text-muted mt-0.5">${escapeHtml(t.pocket_name)} · ${faDate(t.occurred_on)}${who}</p>
       </div>
       <span class="text-xs font-black tracking-tighter ${inc ? "text-emerald-600" : "text-red-500"}">${fmtSigned(t.amount, inc ? "+" : "−")}</span>
       <button class="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 transition-colors" data-del-tx="${t.id}"><i class="fa-solid fa-trash-can text-[11px]"></i></button>
@@ -202,145 +152,143 @@ function renderTx(list) {
   }).join("");
 }
 
+$("#seedDefaultsBtn").addEventListener("click", async () => {
+  try { await api("/pockets/seed-defaults", { method: "POST", body: JSON.stringify({ currency: state.currency }) }); toast("پاکت‌های پیش‌فرض ساخته شد ✅"); refresh(); }
+  catch (err) { toast(err.message); }
+});
+
 /* ============ مودال تراکنش ============ */
 let txType = "expense";
 function setTxType(type) {
   txType = type;
   $$("#txForm .txtype-btn").forEach((b) => {
-    const active = b.dataset.txtype === type;
-    b.className = "txtype-btn h-11 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all " +
-      (active ? (type === "income" ? "bg-emerald-500 text-white shadow" : "bg-red-500 text-white shadow") : "text-muted");
+    const a = b.dataset.txtype === type;
+    b.className = "txtype-btn h-11 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all " + (a ? (type === "income" ? "bg-emerald-500 text-white shadow" : "bg-red-500 text-white shadow") : "text-muted");
   });
 }
 function openTx(type = "expense", pocketId = null) {
   if (!state.pockets.length) return toast("ابتدا یک پاکت بسازید");
   setTxType(type);
   $("#txModalTitle").textContent = "ثبت تراکنش";
-  $("#txPocket").innerHTML = state.pockets.map((p) =>
-    `<option value="${p.id}" ${String(p.id) === String(pocketId) ? "selected" : ""}>${p.emoji} ${escapeHtml(p.name)}</option>`).join("");
-  $("#txAmount").value = "";
-  $("#txNote").value = "";
-  $("#txDate").value = today();
+  $("#txPocket").innerHTML = state.pockets.map((p) => `<option value="${p.id}" ${String(p.id) === String(pocketId) ? "selected" : ""}>${p.emoji} ${escapeHtml(p.name)}</option>`).join("");
+  $("#txAmount").value = ""; $("#txNote").value = ""; $("#txDate").value = today();
   openModal("#txModal");
   setTimeout(() => $("#txAmount").focus(), 60);
 }
 $$("#txForm .txtype-btn").forEach((b) => b.addEventListener("click", () => setTxType(b.dataset.txtype)));
 $("#txForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const body = {
-    pocket_id: Number($("#txPocket").value),
-    type: txType,
-    amount: parseNum($("#txAmount").value),
-    note: $("#txNote").value.trim(),
-    occurred_on: $("#txDate").value,
-  };
+  const body = { pocket_id: Number($("#txPocket").value), type: txType, amount: parseNum($("#txAmount").value), note: $("#txNote").value.trim(), occurred_on: $("#txDate").value };
   if (!(body.amount >= 0)) return toast("مبلغ نامعتبر است");
-  try {
-    await api("/transactions", { method: "POST", body: JSON.stringify(body) });
-    closeModal("#txModal");
-    toast("ثبت شد ✅");
-    refresh();
-  } catch (err) { toast(err.message); }
+  try { await api("/transactions", { method: "POST", body: JSON.stringify(body) }); closeModal("#txModal"); toast("ثبت شد ✅"); refresh(); }
+  catch (err) { toast(err.message); }
 });
 
-/* ============ مودال پاکت ============ */
+/* ============ مودال پاکت (+ اشتراک‌گذاری) ============ */
+let editingPocket = null;
 function openPocket(pocket = null) {
-  const edit = !!pocket;
-  $("#pocketModalTitle").textContent = edit ? "ویرایش پاکت" : "پاکت جدید";
-  $("#pocketId").value = edit ? pocket.id : "";
-  $("#pocketEmoji").value = edit ? pocket.emoji : "💰";
-  $("#pocketName").value = edit ? pocket.name : "";
-  $("#pocketMin").value = edit ? pocket.min_percent : 0;
-  $("#pocketMax").value = edit ? pocket.max_percent : 0;
-  $("#pocketDelete").hidden = !edit;
+  editingPocket = pocket;
+  const isOwner = pocket ? pocket.is_owner : true;
+  $("#pocketModalTitle").textContent = pocket ? (isOwner ? "ویرایش پاکت" : "پاکت مشترک") : "پاکت جدید";
+  $("#pocketId").value = pocket ? pocket.id : "";
+  $("#pocketEmoji").value = pocket ? pocket.emoji : "💰";
+  $("#pocketName").value = pocket ? pocket.name : "";
+  $("#pocketMin").value = pocket ? pocket.min_percent : 0;
+  $("#pocketMax").value = pocket ? pocket.max_percent : 0;
+  ["#pocketEmoji", "#pocketName", "#pocketMin", "#pocketMax"].forEach((s) => ($(s).disabled = !isOwner));
+  $("#pocketDelete").hidden = !pocket || !isOwner;
+  $("#pocketOwnerActions").hidden = !isOwner;
+  $("#pocketShare").hidden = !(pocket && isOwner);
+  $("#pocketLeave").hidden = !(pocket && !isOwner);
+  if (pocket) loadMembers(pocket.id, isOwner);
   openModal("#pocketModal");
+}
+async function loadMembers(pocketId, isOwner) {
+  try {
+    const { members } = await api(`/pockets/${pocketId}/members`);
+    $("#pocketMembers").innerHTML = members.map((m) => {
+      const name = personName(m);
+      const canRemove = isOwner && m.role !== "owner";
+      const roleTag = m.role === "owner" ? `<span class="text-[9px] font-black text-brand bg-brand/10 px-2 py-0.5 rounded-full">مالک</span>` : "";
+      return `<div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2">
+        <span class="text-xs font-bold text-ink flex items-center gap-2">${escapeHtml(name)} ${roleTag}</span>
+        ${canRemove ? `<button class="text-red-400 hover:text-red-600 text-xs" data-remove-member="${m.id}"><i class="fa-solid fa-user-minus"></i></button>` : ""}
+      </div>`;
+    }).join("");
+  } catch (err) { $("#pocketMembers").innerHTML = ""; }
 }
 $("#pocketForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const id = $("#pocketId").value;
-  const body = {
-    name: $("#pocketName").value.trim(),
-    emoji: $("#pocketEmoji").value.trim() || "💰",
-    min_percent: Number($("#pocketMin").value) || 0,
-    max_percent: Number($("#pocketMax").value) || 0,
-  };
+  const body = { name: $("#pocketName").value.trim(), emoji: $("#pocketEmoji").value.trim() || "💰", min_percent: Number($("#pocketMin").value) || 0, max_percent: Number($("#pocketMax").value) || 0 };
   if (!body.name) return toast("نام پاکت الزامی است");
   try {
     if (id) await api(`/pockets/${id}`, { method: "PUT", body: JSON.stringify(body) });
-    else await api("/pockets", { method: "POST", body: JSON.stringify(body) });
-    closeModal("#pocketModal");
-    toast("ذخیره شد ✅");
-    refresh();
+    else await api("/pockets", { method: "POST", body: JSON.stringify({ ...body, currency: state.currency }) });
+    closeModal("#pocketModal"); toast("ذخیره شد ✅"); refresh();
   } catch (err) { toast(err.message); }
 });
 $("#pocketDelete").addEventListener("click", async () => {
   const id = $("#pocketId").value;
   if (!id || !confirm("این پاکت و همه‌ی تراکنش‌هایش حذف شوند؟")) return;
-  try {
-    await api(`/pockets/${id}`, { method: "DELETE" });
-    closeModal("#pocketModal");
-    toast("حذف شد");
-    refresh();
-  } catch (err) { toast(err.message); }
+  try { await api(`/pockets/${id}`, { method: "DELETE" }); closeModal("#pocketModal"); toast("حذف شد"); refresh(); }
+  catch (err) { toast(err.message); }
+});
+$("#shareAddBtn").addEventListener("click", async () => {
+  const id = $("#pocketId").value;
+  const identifier = $("#shareIdentifier").value.trim();
+  if (!identifier) return;
+  try { await api(`/pockets/${id}/share`, { method: "POST", body: JSON.stringify({ identifier }) }); $("#shareIdentifier").value = ""; toast("عضو اضافه شد ✅"); loadMembers(id, true); refresh(); }
+  catch (err) { toast(err.message); }
+});
+$("#pocketMembers").addEventListener("click", async (e) => {
+  const rm = e.target.closest("[data-remove-member]");
+  if (!rm) return;
+  const id = $("#pocketId").value;
+  try { await api(`/pockets/${id}/members/${rm.dataset.removeMember}`, { method: "DELETE" }); toast("حذف شد"); loadMembers(id, true); refresh(); }
+  catch (err) { toast(err.message); }
+});
+$("#pocketLeave").addEventListener("click", async () => {
+  const id = $("#pocketId").value;
+  if (!confirm("از این پاکت مشترک خارج می‌شوید؟")) return;
+  try { await api(`/pockets/${id}/members/${state.user.id}`, { method: "DELETE" }); closeModal("#pocketModal"); toast("خارج شدید"); refresh(); }
+  catch (err) { toast(err.message); }
 });
 
-/* ============ صفحه‌ی تقسیم حقوق ============ */
+/* ============ تقسیم حقوق ============ */
 const DIST_COLORS = ["bg-brand-500", "bg-amber-400", "bg-blue-400", "bg-purple-400", "bg-rose-400", "bg-emerald-400", "bg-cyan-400", "bg-orange-400", "bg-indigo-400", "bg-pink-400"];
-let distAlloc = {}; // pocket_id -> percent
-
+let distAlloc = {};
 function openDistribute() {
   if (!state.pockets.length) return toast("ابتدا یک پاکت بسازید");
-  $("#distAmount").value = "";
-  $("#distDate").value = today();
-  $("#distCurrency").textContent = cur().sym;
+  $("#distAmount").value = ""; $("#distDate").value = today(); $("#distCurrency").textContent = cur().sym;
   resetDistDefaults();
   $("#distributeScreen").hidden = false;
   setTimeout(() => $("#distAmount").focus(), 80);
 }
-function resetDistDefaults() {
-  distAlloc = {};
-  state.pockets.forEach((p) => { distAlloc[p.id] = (Number(p.min_percent) + Number(p.max_percent)) / 2; });
-  renderDistRows();
-}
+function resetDistDefaults() { distAlloc = {}; state.pockets.forEach((p) => (distAlloc[p.id] = (Number(p.min_percent) + Number(p.max_percent)) / 2)); renderDistRows(); }
 function renderDistRows() {
   const amount = parseNum($("#distAmount").value) || 0;
   const totalPct = Object.values(distAlloc).reduce((s, v) => s + v, 0);
-  const rows = $("#distRows");
-  rows.innerHTML = state.pockets.map((p, i) => {
-    const pct = distAlloc[p.id] || 0;
-    const share = totalPct > 0 ? amount * (pct / totalPct) : 0;
-    return `
-    <div class="bg-slate-50/50 rounded-2xl p-4 border border-slate-100 flex items-center gap-4">
+  $("#distRows").innerHTML = state.pockets.map((p) => {
+    const pct = distAlloc[p.id] || 0, share = totalPct > 0 ? amount * (pct / totalPct) : 0;
+    return `<div class="bg-slate-50/50 rounded-2xl p-4 border border-slate-100 flex items-center gap-4">
       <div class="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm">${escapeHtml(p.emoji)}</div>
-      <div class="flex-1 min-w-0">
-        <h3 class="text-sm font-extrabold text-ink leading-tight truncate">${escapeHtml(p.name)}</h3>
-        <p class="text-[10px] font-bold text-muted mt-0.5">${fmt(Math.round(share))}</p>
-      </div>
+      <div class="flex-1 min-w-0"><h3 class="text-sm font-extrabold text-ink leading-tight truncate">${escapeHtml(p.name)}</h3><p class="text-[10px] font-bold text-muted mt-0.5">${fmt(Math.round(share))}</p></div>
       <div class="flex items-center gap-3">
         <button type="button" class="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-muted active:bg-brand active:text-white transition-all" data-dist-minus="${p.id}"><i class="fa-solid fa-minus text-[10px]"></i></button>
         <span class="text-sm font-black text-brand w-10 text-center">${faPct(pct)}</span>
         <button type="button" class="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-muted active:bg-brand active:text-white transition-all" data-dist-plus="${p.id}"><i class="fa-solid fa-plus text-[10px]"></i></button>
-      </div>
-    </div>`;
+      </div></div>`;
   }).join("");
-
-  // نوار توزیع
-  $("#distBar").innerHTML = state.pockets.map((p, i) => {
-    const pct = distAlloc[p.id] || 0;
-    const w = totalPct > 0 ? (pct / totalPct) * 100 : 0;
-    return w > 0 ? `<div class="h-full ${DIST_COLORS[i % DIST_COLORS.length]} border-r border-white/20" style="width:${w}%"></div>` : "";
-  }).join("");
-
+  $("#distBar").innerHTML = state.pockets.map((p, i) => { const w = totalPct > 0 ? ((distAlloc[p.id] || 0) / totalPct) * 100 : 0; return w > 0 ? `<div class="h-full ${DIST_COLORS[i % DIST_COLORS.length]} border-r border-white/20" style="width:${w}%"></div>` : ""; }).join("");
+  const rounded = Math.round(totalPct), ok = rounded === 100;
   const badge = $("#distTotalBadge");
-  const rounded = Math.round(totalPct);
   badge.textContent = `${faPct(rounded)} تخصیص‌یافته`;
-  const ok = rounded === 100;
   badge.className = "text-xs font-black px-2 py-0.5 rounded-full " + (ok ? "text-emerald-600 bg-emerald-50" : "text-amber-600 bg-amber-50");
 }
 $("#distAmount").addEventListener("input", renderDistRows);
 $("#distRows").addEventListener("click", (e) => {
-  const plus = e.target.closest("[data-dist-plus]");
-  const minus = e.target.closest("[data-dist-minus]");
+  const plus = e.target.closest("[data-dist-plus]"), minus = e.target.closest("[data-dist-minus]");
   if (plus) { const id = plus.dataset.distPlus; distAlloc[id] = Math.min(100, (distAlloc[id] || 0) + 1); renderDistRows(); }
   if (minus) { const id = minus.dataset.distMinus; distAlloc[id] = Math.max(0, (distAlloc[id] || 0) - 1); renderDistRows(); }
 });
@@ -349,88 +297,157 @@ $("#distBack").addEventListener("click", () => ($("#distributeScreen").hidden = 
 async function doDistribute() {
   const amount = parseNum($("#distAmount").value);
   if (!(amount > 0)) return toast("مبلغ حقوق را وارد کنید");
-  const allocations = state.pockets
-    .map((p) => ({ pocket_id: p.id, percent: distAlloc[p.id] || 0 }))
-    .filter((a) => a.percent > 0);
+  const allocations = state.pockets.map((p) => ({ pocket_id: p.id, percent: distAlloc[p.id] || 0 })).filter((a) => a.percent > 0);
   if (!allocations.length) return toast("حداقل یک درصد را وارد کنید");
-  try {
-    await api("/distribute", { method: "POST", body: JSON.stringify({ amount, occurred_on: $("#distDate").value, allocations }) });
-    $("#distributeScreen").hidden = true;
-    toast("حقوق تقسیم شد 💸");
-    refresh();
-  } catch (err) { toast(err.message); }
+  try { await api("/distribute", { method: "POST", body: JSON.stringify({ amount, currency: state.currency, occurred_on: $("#distDate").value, allocations }) }); $("#distributeScreen").hidden = true; toast("حقوق تقسیم شد 💸"); refresh(); }
+  catch (err) { toast(err.message); }
 }
 $("#distConfirm").addEventListener("click", doDistribute);
 $("#distConfirmTop").addEventListener("click", doDistribute);
 
-/* ============ ماه و واحد پول ============ */
-function applyMonth() {
-  $("#monthLabel").textContent = monthLabel(state.month);
-  $("#monthInput").value = state.month;
+/* ============ قرض‌ها ============ */
+let loanDir = "lent";
+function setLoanDir(dir) {
+  loanDir = dir;
+  $$("#loanForm .loandir-btn").forEach((b) => {
+    const a = b.dataset.loandir === dir;
+    b.className = "loandir-btn h-11 rounded-xl text-xs font-black transition-all " + (a ? "bg-brand text-white shadow" : "text-muted");
+  });
 }
-$("#monthBtn").addEventListener("click", () => {
-  const inp = $("#monthInput");
-  if (inp.showPicker) { try { inp.showPicker(); return; } catch {} }
-  inp.click();
+async function openLoans() {
+  $("#loansScreen").hidden = false;
+  await loadLoans();
+}
+async function loadLoans() {
+  try {
+    const { loans } = await api("/loans");
+    const owed = {}, owe = {};
+    loans.forEach((l) => { if (l.status === "active") { const m = l.i_am_lender ? owed : owe; m[l.currency] = (m[l.currency] || 0) + l.outstanding; } });
+    const sumStr = (m) => { const parts = Object.entries(m).filter(([, v]) => v > 0).map(([c, v]) => fmtC(v, c)); return parts.length ? parts.join(" + ") : "۰"; };
+    $("#loansOwedToMe").textContent = sumStr(owed);
+    $("#loansIOwe").textContent = sumStr(owe);
+    $("#loansEmpty").hidden = loans.length > 0;
+    $("#loansList").innerHTML = loans.map(loanCard).join("");
+  } catch (err) { toast(err.message); }
+}
+function loanStatusBadge(l) {
+  const map = {
+    pending: ["text-amber-600 bg-amber-50", "در انتظار"],
+    active: ["text-brand bg-brand/10", "فعال"],
+    settled: ["text-emerald-600 bg-emerald-50", "تسویه‌شده"],
+    declined: ["text-slate-500 bg-slate-100", "رد شده"],
+  };
+  const [cls, label] = map[l.status] || map.pending;
+  return `<span class="text-[10px] font-black px-2 py-0.5 rounded-full ${cls}">${label}</span>`;
+}
+function loanCard(l) {
+  const name = personName(l.counterparty);
+  const dirText = l.i_am_lender ? "به شما بدهکار است" : "به او بدهکارید";
+  const dirColor = l.i_am_lender ? "text-emerald-600" : "text-red-500";
+  let actions = "";
+  if (l.status === "pending" && l.can_respond) {
+    actions = `<div class="flex gap-2 mt-3">
+      <button class="flex-1 h-10 bg-brand text-white rounded-xl text-xs font-black active:scale-[0.98]" data-loan-accept="${l.id}">تأیید</button>
+      <button class="flex-1 h-10 bg-slate-100 text-muted rounded-xl text-xs font-black active:scale-[0.98]" data-loan-decline="${l.id}">رد</button></div>`;
+  } else if (l.status === "pending" && l.i_created) {
+    actions = `<div class="flex gap-2 mt-3"><span class="flex-1 text-[10px] font-bold text-muted flex items-center">در انتظار تأیید طرف مقابل…</span>
+      <button class="h-10 px-4 bg-red-50 text-red-600 rounded-xl text-xs font-black active:scale-[0.98]" data-loan-cancel="${l.id}">لغو</button></div>`;
+  } else if (l.status === "active") {
+    actions = `<div class="flex items-center justify-between mt-3">
+      <span class="text-[10px] font-bold text-muted">بازپرداخت‌شده: ${fmtC(l.repaid, l.currency)}</span>
+      <button class="h-10 px-4 bg-brand/10 text-brand rounded-xl text-xs font-black active:scale-[0.98]" data-loan-repay="${l.id}" data-loan-cur="${l.currency}">ثبت بازپرداخت</button></div>`;
+  }
+  return `<div class="bg-white rounded-2xl p-4 border border-slate-100 space-y-1">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2"><div class="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-muted"><i class="fa-solid fa-user"></i></div>
+        <div><p class="text-xs font-extrabold text-ink">${escapeHtml(name)}</p><p class="text-[10px] font-bold ${dirColor}">${dirText}</p></div></div>
+      ${loanStatusBadge(l)}
+    </div>
+    <div class="flex items-baseline justify-between pt-1">
+      <span class="text-[10px] font-bold text-muted">${l.note ? escapeHtml(l.note) : "—"}</span>
+      <span class="text-base font-black tracking-tighter text-ink">${fmtC(l.outstanding, l.currency)}${l.status === "active" && l.repaid > 0 ? ` <span class="text-[10px] text-muted">/ ${fmtC(l.amount, l.currency)}</span>` : ""}</span>
+    </div>
+    ${actions}
+  </div>`;
+}
+$("#loansBack").addEventListener("click", () => ($("#loansScreen").hidden = true));
+$("#loanAddBtn").addEventListener("click", () => {
+  setLoanDir("lent");
+  $("#loanCurrency").innerHTML = CURRENCIES.map((c) => `<option value="${c.code}" ${c.code === state.currency ? "selected" : ""}>${c.sym} ${c.label}</option>`).join("");
+  $("#loanIdentifier").value = ""; $("#loanAmount").value = ""; $("#loanNote").value = "";
+  openModal("#loanModal");
 });
-$("#monthInput").addEventListener("change", () => {
-  state.month = $("#monthInput").value || currentMonth();
-  applyMonth();
-  refresh();
+$$("#loanForm .loandir-btn").forEach((b) => b.addEventListener("click", () => setLoanDir(b.dataset.loandir)));
+$("#loanForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = { identifier: $("#loanIdentifier").value.trim(), direction: loanDir, amount: parseNum($("#loanAmount").value), currency: $("#loanCurrency").value, note: $("#loanNote").value.trim() };
+  if (!body.identifier) return toast("طرف مقابل را وارد کنید");
+  if (!(body.amount > 0)) return toast("مبلغ نامعتبر است");
+  try { await api("/loans", { method: "POST", body: JSON.stringify(body) }); closeModal("#loanModal"); toast("قرض ثبت شد ✅"); loadLoans(); }
+  catch (err) { toast(err.message); }
 });
+$("#loansList").addEventListener("click", async (e) => {
+  const acc = e.target.closest("[data-loan-accept]"), dec = e.target.closest("[data-loan-decline]"), can = e.target.closest("[data-loan-cancel]"), rep = e.target.closest("[data-loan-repay]");
+  try {
+    if (acc) { await api(`/loans/${acc.dataset.loanAccept}/respond`, { method: "POST", body: JSON.stringify({ accept: true }) }); toast("تأیید شد"); loadLoans(); }
+    else if (dec) { await api(`/loans/${dec.dataset.loanDecline}/respond`, { method: "POST", body: JSON.stringify({ accept: false }) }); toast("رد شد"); loadLoans(); }
+    else if (can) { if (!confirm("این قرض لغو شود؟")) return; await api(`/loans/${can.dataset.loanCancel}`, { method: "DELETE" }); toast("لغو شد"); loadLoans(); }
+    else if (rep) {
+      const raw = prompt("مبلغ بازپرداخت را وارد کنید:");
+      if (raw == null) return;
+      const amount = parseNum(raw);
+      if (!(amount > 0)) return toast("مبلغ نامعتبر است");
+      await api(`/loans/${rep.dataset.loanRepay}/repay`, { method: "POST", body: JSON.stringify({ amount }) });
+      toast("بازپرداخت ثبت شد ✅"); loadLoans();
+    }
+  } catch (err) { toast(err.message); }
+});
+
+/* ============ ماه و ارز ============ */
+function applyMonth() { $("#monthLabel").textContent = monthLabel(state.month); $("#monthInput").value = state.month; }
+$("#monthBtn").addEventListener("click", () => { const inp = $("#monthInput"); if (inp.showPicker) { try { inp.showPicker(); return; } catch {} } inp.click(); });
+$("#monthInput").addEventListener("change", () => { state.month = $("#monthInput").value || currentMonth(); applyMonth(); refresh(); });
 function renderCurrencyMenu() {
   $("#currencyOptions").innerHTML = CURRENCIES.map((c) => `
     <button data-cur="${c.code}" class="w-full flex items-center justify-between px-4 h-12 rounded-2xl border ${c.code === state.currency ? "border-brand bg-brand/5 text-brand" : "border-slate-100 bg-slate-50 text-ink"} font-bold text-sm transition-all">
-      <span>${c.label}</span><span class="text-base">${c.sym}</span>
-    </button>`).join("");
+      <span>${c.label}</span><span class="text-base">${c.sym}</span></button>`).join("");
 }
 $("#currencyBtn").addEventListener("click", () => { renderCurrencyMenu(); openModal("#currencyMenu"); });
 $("#currencyOptions").addEventListener("click", (e) => {
   const b = e.target.closest("[data-cur]");
   if (!b) return;
-  state.currency = b.dataset.cur;
-  localStorage.setItem("fin_currency", state.currency);
-  applyCurrencyLabel();
-  closeModal("#currencyMenu");
-  refresh();
+  state.currency = b.dataset.cur; localStorage.setItem("fin_currency", state.currency);
+  applyCurrencyLabel(); closeModal("#currencyMenu"); refresh();
 });
-function applyCurrencyLabel() {
-  const c = cur();
-  $("#currencyLabel").textContent = `${c.sym} ${c.label}`;
-}
+function applyCurrencyLabel() { const c = cur(); $("#currencyLabel").textContent = `${c.sym} ${c.label}`; }
 
 /* ============ ناوبری و پروفایل ============ */
 $$("[data-nav]").forEach((b) => b.addEventListener("click", () => {
   const n = b.dataset.nav;
   if (n === "tx") openTx("expense");
   else if (n === "profile") openProfile();
-  else if (n === "reports") toast("گزارش‌ها به‌زودی اضافه می‌شود");
+  else if (n === "loans") openLoans();
   else window.scrollTo({ top: 0, behavior: "smooth" });
 }));
 $("#bellBtn").addEventListener("click", () => toast("اعلان جدیدی ندارید"));
 $("#avatarBtn").addEventListener("click", openProfile);
 function openProfile() {
-  const email = state.user?.email || "";
-  $("#profileEmail").textContent = email;
-  $("#profileAvatar").textContent = (email[0] || "؟").toUpperCase();
+  const name = state.user?.display_name || state.user?.email || (state.user?.telegram_username ? "@" + state.user.telegram_username : "");
+  $("#profileEmail").textContent = name;
+  $("#profileAvatar").textContent = (name.replace(/^@/, "")[0] || "؟").toUpperCase();
   openModal("#profileMenu");
 }
 $("#logoutBtn").addEventListener("click", async () => {
   try { await api("/auth/logout", { method: "POST" }); } catch {}
-  closeModal("#profileMenu");
-  $("#authForm").reset();
-  setAuthMode("login");
-  showAuth();
+  closeModal("#profileMenu"); $("#authForm").reset(); setAuthMode("login"); showAuth();
 });
 
-/* ============ رویدادهای عمومی داشبورد ============ */
+/* ============ داشبورد رویدادها ============ */
 $("#btnDistribute").addEventListener("click", openDistribute);
 $("#btnAddTx").addEventListener("click", () => openTx("expense"));
 $("#btnAddPocket").addEventListener("click", () => openPocket());
 $("#pockets").addEventListener("click", (e) => {
-  const inc = e.target.closest("[data-add-income]");
-  const exp = e.target.closest("[data-add-expense]");
-  const edit = e.target.closest("[data-edit]");
+  const inc = e.target.closest("[data-add-income]"), exp = e.target.closest("[data-add-expense]"), edit = e.target.closest("[data-edit]");
   if (inc) return openTx("income", inc.dataset.addIncome);
   if (exp) return openTx("expense", exp.dataset.addExpense);
   if (edit) { const p = state.pockets.find((x) => String(x.id) === edit.dataset.edit); if (p) openPocket(p); }
@@ -456,72 +473,92 @@ function setAuthMode(mode) {
   $("#authPassword").autocomplete = login ? "current-password" : "new-password";
   $("#authError").hidden = true;
 }
+function showEmailAuth() {
+  $("#otpForm").hidden = true;
+  $("#authForm").hidden = false; $("#authSwitch").hidden = false; $("#tgSection").hidden = false;
+}
+function showOtpAuth() {
+  $("#authForm").hidden = true; $("#authSwitch").hidden = true; $("#tgSection").hidden = true;
+  $("#otpForm").hidden = false; $("#otpStep1").hidden = false; $("#otpStep2").hidden = true;
+  $("#otpSubmit").textContent = "ارسال کد"; $("#otpError").hidden = true; $("#otpHint").textContent = "";
+  otpStage = 1;
+}
 function showAuth() {
-  $("#appScreen").hidden = true;
-  $("#distributeScreen").hidden = true;
-  $("#authScreen").hidden = false;
+  $("#appScreen").hidden = true; $("#distributeScreen").hidden = true; $("#loansScreen").hidden = true;
+  $("#authScreen").hidden = false; showEmailAuth();
 }
 function showApp() {
-  $("#authScreen").hidden = true;
-  $("#appScreen").hidden = false;
-  const email = state.user?.email || "";
-  $("#userGreet").textContent = email ? "، " + email.split("@")[0] : "";
-  $("#avatarBtn").textContent = (email[0] || "؟").toUpperCase();
-  applyMonth();
-  applyCurrencyLabel();
-  refresh();
+  $("#authScreen").hidden = true; $("#appScreen").hidden = false;
+  const name = state.user?.display_name || state.user?.email || (state.user?.telegram_username ? "@" + state.user.telegram_username : "");
+  $("#userGreet").textContent = name ? "، " + name.replace(/^@/, "").split("@")[0] : "";
+  $("#avatarBtn").textContent = (name.replace(/^@/, "")[0] || "؟").toUpperCase();
+  applyMonth(); applyCurrencyLabel(); refresh();
 }
 $("#authToggle").addEventListener("click", () => setAuthMode(authMode === "login" ? "register" : "login"));
 $("#togglePw").addEventListener("click", () => {
-  const inp = $("#authPassword");
-  const show = inp.type === "password";
+  const inp = $("#authPassword"), show = inp.type === "password";
   inp.type = show ? "text" : "password";
   $("#togglePw").innerHTML = show ? '<i class="fa-regular fa-eye-slash"></i>' : '<i class="fa-regular fa-eye"></i>';
 });
-$("#forgotBtn").addEventListener("click", () => toast("بازیابی رمز به‌زودی اضافه می‌شود"));
+$("#forgotBtn").addEventListener("click", () => toast("بازیابی رمز به‌زودی؛ می‌توانید با تلگرام وارد شوید"));
 $("#authForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const email = $("#authEmail").value.trim();
-  const password = $("#authPassword").value;
-  const errEl = $("#authError");
+  const email = $("#authEmail").value.trim(), password = $("#authPassword").value, errEl = $("#authError");
   errEl.hidden = true;
-  const btn = $("#authSubmit");
-  btn.disabled = true;
-  const orig = btn.textContent;
-  btn.textContent = "لطفاً صبر کنید…";
+  const btn = $("#authSubmit"), orig = btn.textContent; btn.disabled = true; btn.textContent = "لطفاً صبر کنید…";
   try {
-    const path = authMode === "login" ? "/auth/login" : "/auth/register";
-    const res = await fetch("/api" + path, {
-      method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin",
-      body: JSON.stringify({ email, password }),
-    });
+    const res = await fetch("/api/auth/" + (authMode === "login" ? "login" : "register"), { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ email, password }) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "خطا در احراز هویت");
-    state.user = data.user;
-    showApp();
-  } catch (err) {
-    errEl.textContent = err.message;
-    errEl.hidden = false;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = orig;
-  }
+    state.user = data.user; showApp();
+  } catch (err) { errEl.textContent = err.message; errEl.hidden = false; }
+  finally { btn.disabled = false; btn.textContent = orig; }
+});
+
+/* ---- تلگرام ---- */
+async function telegramMiniAppLogin() {
+  try {
+    const res = await fetch("/api/auth/telegram/miniapp", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ initData: tg.initData }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "ورود تلگرام ناموفق بود");
+    state.user = data.user; showApp(); return true;
+  } catch (err) { toast(err.message); return false; }
+}
+let otpStage = 1;
+$("#tgLoginBtn").addEventListener("click", () => { if (inTelegram) telegramMiniAppLogin(); else showOtpAuth(); });
+$("#otpBack").addEventListener("click", showEmailAuth);
+$("#otpForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = $("#otpError"); errEl.hidden = true;
+  const btn = $("#otpSubmit"), orig = btn.textContent; btn.disabled = true; btn.textContent = "لطفاً صبر کنید…";
+  try {
+    const identifier = $("#otpIdentifier").value.trim();
+    if (otpStage === 1) {
+      if (!identifier) throw new Error("نام کاربری تلگرام را وارد کنید");
+      const r = await api("/auth/telegram/request-otp", { method: "POST", body: JSON.stringify({ identifier }) });
+      $("#otpStep2").hidden = false; $("#otpSubmit").textContent = "ورود"; otpStage = 2;
+      $("#otpHint").textContent = r.dev_code ? `کد تست: ${r.dev_code}` : "کد به تلگرام شما ارسال شد.";
+      setTimeout(() => $("#otpCode").focus(), 60);
+    } else {
+      const code = $("#otpCode").value.trim();
+      if (!code) throw new Error("کد را وارد کنید");
+      const r = await api("/auth/telegram/verify-otp", { method: "POST", body: JSON.stringify({ identifier, code }) });
+      state.user = r.user; showApp();
+    }
+  } catch (err) { errEl.textContent = err.message; errEl.hidden = false; }
+  finally { btn.disabled = false; btn.textContent = otpStage === 2 ? "ورود" : "ارسال کد"; }
 });
 
 /* ============ شروع ============ */
 async function init() {
   applyCurrencyLabel();
+  if (tg) { try { tg.ready(); tg.expand(); } catch {} }
   try {
     const me = await api("/auth/me");
-    state.user = me.user;
-    showApp();
-  } catch {
-    setAuthMode("login");
-    showAuth();
-  }
+    state.user = me.user; showApp(); return;
+  } catch {}
+  if (inTelegram) { const okLogin = await telegramMiniAppLogin(); if (okLogin) return; }
+  setAuthMode("login"); showAuth();
 }
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
-}
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 init();

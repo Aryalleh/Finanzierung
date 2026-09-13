@@ -3,6 +3,14 @@
 @tailwind utilities;
 
 /* ---- سفارشی‌ها ---- */
+/* بزرگ‌تر کردن فونت پایه (رابط قبلی ریز بود) */
+html { font-size: 18px; }
+
+/* بزرگ‌تر کردن ریزترین اندازه‌های ثابت تا با فونت پایه هماهنگ شوند */
+.text-\[9px\]  { font-size: .68rem; }
+.text-\[10px\] { font-size: .74rem; }
+.text-\[11px\] { font-size: .8rem; }
+
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { width: 0; height: 0; display: none; }
 

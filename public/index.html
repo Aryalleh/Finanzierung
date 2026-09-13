@@ -14,6 +14,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 <link rel="stylesheet" href="/styles.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body class="bg-[#f1f5f9] text-ink font-sans antialiased">
 
@@ -55,12 +56,44 @@
         <p id="authError" class="text-xs font-bold text-red-600 bg-red-50 rounded-xl px-3 py-2 text-center" hidden></p>
         <button id="authSubmit" type="submit" class="w-full h-14 bg-brand hover:bg-brand-dark text-white rounded-2xl font-black text-sm shadow-xl shadow-brand/20 transition-all active:scale-[0.98] mt-2">ورود به حساب کاربری</button>
       </form>
-      <div class="pt-2 text-center relative">
+      <div class="pt-2 text-center relative" id="authSwitch">
         <p class="text-[11px] font-bold text-slate-500">
           <span id="authSwitchText">حساب کاربری ندارید؟</span>
           <button type="button" id="authToggle" class="text-brand font-black mr-1">ثبت‌نام کنید</button>
         </p>
       </div>
+
+      <!-- تلگرام -->
+      <div class="relative" id="tgSection">
+        <div class="flex items-center gap-3 my-1">
+          <div class="flex-1 h-px bg-slate-100"></div>
+          <span class="text-[10px] font-black text-slate-300 uppercase tracking-widest">یا</span>
+          <div class="flex-1 h-px bg-slate-100"></div>
+        </div>
+        <button type="button" id="tgLoginBtn" class="w-full py-3.5 bg-[#229ED9]/10 text-[#229ED9] rounded-2xl font-black text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all">
+          <i class="fa-brands fa-telegram text-lg"></i> ورود با تلگرام
+        </button>
+      </div>
+
+      <!-- فرم OTP تلگرام (در مرورگر) -->
+      <form id="otpForm" class="space-y-4 relative" hidden>
+        <div class="flex items-center gap-2">
+          <button type="button" id="otpBack" class="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-muted"><i class="fa-solid fa-arrow-right text-xs"></i></button>
+          <p class="text-xs font-bold text-slate-500">ورود با کد یک‌بارمصرف تلگرام</p>
+        </div>
+        <div id="otpStep1" class="space-y-1.5">
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">نام کاربری تلگرام</label>
+          <input id="otpIdentifier" type="text" placeholder="@username" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand" dir="ltr">
+          <p class="text-[10px] font-bold text-slate-400 mt-1">برای دریافت کد باید قبلاً از مینی‌اپ تلگرام وارد شده باشید.</p>
+        </div>
+        <div id="otpStep2" class="space-y-1.5" hidden>
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">کد ۶ رقمی</label>
+          <input id="otpCode" type="text" inputmode="numeric" maxlength="6" placeholder="------" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-lg font-black text-center tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand" dir="ltr">
+          <p id="otpHint" class="text-[10px] font-bold text-emerald-600 mt-1"></p>
+        </div>
+        <p id="otpError" class="text-xs font-bold text-red-600 bg-red-50 rounded-xl px-3 py-2 text-center" hidden></p>
+        <button id="otpSubmit" type="submit" class="w-full py-3.5 bg-brand text-white rounded-2xl font-black text-sm active:scale-[0.98] transition-all">ارسال کد</button>
+      </form>
     </div>
     <p class="text-center text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">مدیریت حقوق ماهانه</p>
   </div>
@@ -138,7 +171,12 @@
         <span id="pocketCount" class="text-[10px] font-bold text-muted bg-slate-100 px-2 py-0.5 rounded-full">۰ پاکت</span>
       </div>
       <div id="pockets" class="grid grid-cols-1 gap-4"></div>
-      <div id="pocketsEmpty" class="text-center text-xs font-bold text-muted py-8" hidden>هنوز پاکتی نیست. یک پاکت جدید بسازید.</div>
+      <div id="pocketsEmpty" class="text-center py-8 space-y-3" hidden>
+        <p class="text-xs font-bold text-muted">در این ارز هنوز پاکتی ندارید.</p>
+        <button id="seedDefaultsBtn" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-brand text-white font-bold text-xs active:scale-[0.98] transition-all">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> ساخت پاکت‌های پیش‌فرض
+        </button>
+      </div>
     </section>
 
     <section class="space-y-4 pt-4">
@@ -155,8 +193,8 @@
       <button data-nav="wallet" class="flex flex-col items-center gap-1 py-1.5 px-3 text-brand-600">
         <i class="fa-solid fa-wallet text-lg"></i><span class="text-[10px] font-semibold">کیف‌پول</span>
       </button>
-      <button data-nav="reports" class="flex flex-col items-center gap-1 py-1.5 px-3 text-muted hover:text-ink transition-colors">
-        <i class="fa-regular fa-chart-bar text-lg"></i><span class="text-[10px] font-medium">گزارش</span>
+      <button data-nav="loans" class="flex flex-col items-center gap-1 py-1.5 px-3 text-muted hover:text-ink transition-colors">
+        <i class="fa-solid fa-handshake-angle text-lg"></i><span class="text-[10px] font-medium">قرض‌ها</span>
       </button>
       <button data-nav="tx" class="flex flex-col items-center gap-1 py-1.5 px-3 text-muted hover:text-ink transition-colors">
         <i class="fa-solid fa-receipt text-lg"></i><span class="text-[10px] font-medium">تراکنش</span>
@@ -270,11 +308,26 @@
           <input id="pocketMax" type="number" min="0" max="100" step="1" value="0" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand">
         </div>
       </div>
-      <div class="flex gap-3 pt-1">
+      <div class="flex gap-3 pt-1" id="pocketOwnerActions">
         <button type="button" id="pocketDelete" class="h-14 px-5 bg-red-50 text-red-600 rounded-2xl font-black text-sm active:scale-[0.98] transition-all" hidden><i class="fa-solid fa-trash"></i></button>
         <button type="submit" class="flex-1 h-14 bg-brand hover:bg-brand-dark text-white rounded-2xl font-black text-sm shadow-xl shadow-brand/20 transition-all active:scale-[0.98]">ذخیره</button>
       </div>
     </form>
+
+    <!-- اشتراک‌گذاری (فقط مالک) -->
+    <div id="pocketShare" class="space-y-3 pt-4 border-t border-slate-100" hidden>
+      <h3 class="text-sm font-extrabold text-ink flex items-center gap-2"><i class="fa-solid fa-user-group text-brand text-xs"></i> اعضای پاکت مشترک</h3>
+      <div id="pocketMembers" class="space-y-2"></div>
+      <div class="flex gap-2">
+        <input id="shareIdentifier" type="text" placeholder="ایمیل یا @یوزرنیم تلگرام" class="flex-1 h-11 bg-slate-50 border border-slate-100 rounded-xl px-3 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand/20" dir="ltr">
+        <button type="button" id="shareAddBtn" class="h-11 px-4 bg-brand text-white rounded-xl font-black text-xs active:scale-[0.98]">افزودن</button>
+      </div>
+    </div>
+
+    <!-- خروج (عضو غیرمالک) -->
+    <button type="button" id="pocketLeave" class="w-full h-12 mt-4 bg-red-50 text-red-600 rounded-2xl font-black text-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2" hidden>
+      <i class="fa-solid fa-arrow-right-from-bracket"></i> خروج از پاکت مشترک
+    </button>
   </div>
 </div>
 
@@ -300,6 +353,67 @@
     <button id="logoutBtn" class="w-full h-14 bg-red-50 text-red-600 rounded-2xl font-black text-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2">
       <i class="fa-solid fa-arrow-right-from-bracket"></i> خروج از حساب
     </button>
+  </div>
+</div>
+
+<!-- ============ صفحه‌ی قرض‌ها ============ -->
+<div id="loansScreen" class="fixed inset-0 z-40 bg-[#f1f5f9] overflow-y-auto no-scrollbar" hidden>
+  <div class="max-w-md mx-auto min-h-screen flex flex-col bg-white">
+    <header class="px-5 pt-6 pb-4 flex items-center justify-between border-b border-slate-50 sticky top-0 bg-white/80 backdrop-blur-xl z-20">
+      <button id="loansBack" class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-muted hover:text-ink active:scale-95 transition-all"><i class="fa-solid fa-arrow-right"></i></button>
+      <h1 class="text-base font-extrabold tracking-tight">قرض‌ها</h1>
+      <button id="loanAddBtn" class="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center text-brand active:scale-95 transition-all"><i class="fa-solid fa-plus"></i></button>
+    </header>
+    <main class="flex-1 p-5 space-y-5 overflow-y-auto no-scrollbar pb-28">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-emerald-50 rounded-2xl p-4 flex flex-col gap-1">
+          <span class="text-[10px] font-black text-emerald-700">طلب من (به من بدهکارند)</span>
+          <span id="loansOwedToMe" class="text-lg font-black text-emerald-600 tracking-tighter">—</span>
+        </div>
+        <div class="bg-red-50 rounded-2xl p-4 flex flex-col gap-1">
+          <span class="text-[10px] font-black text-red-700">بدهی من (بدهکارم)</span>
+          <span id="loansIOwe" class="text-lg font-black text-red-500 tracking-tighter">—</span>
+        </div>
+      </div>
+      <div id="loansList" class="space-y-3"></div>
+      <div id="loansEmpty" class="text-center text-xs font-bold text-muted py-10" hidden>هنوز قرضی ثبت نشده است.</div>
+    </main>
+  </div>
+</div>
+
+<!-- ============ مودال ثبت قرض ============ -->
+<div id="loanModal" class="fixed inset-0 z-50 flex items-end justify-center" hidden>
+  <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" data-close></div>
+  <div class="relative w-full max-w-md bg-white rounded-t-[32px] p-6 space-y-5 sheet-anim">
+    <div class="flex items-center justify-between">
+      <h2 class="text-lg font-extrabold text-ink">ثبت قرض</h2>
+      <button class="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-muted" data-close><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="loanForm" class="space-y-4">
+      <div class="grid grid-cols-2 gap-2 bg-slate-50 p-1 rounded-2xl">
+        <button type="button" data-loandir="lent" class="loandir-btn h-11 rounded-xl text-xs font-black transition-all">قرض دادم</button>
+        <button type="button" data-loandir="borrowed" class="loandir-btn h-11 rounded-xl text-xs font-black transition-all">قرض گرفتم</button>
+      </div>
+      <div class="space-y-1.5">
+        <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">طرف مقابل (ایمیل یا @یوزرنیم تلگرام)</label>
+        <input id="loanIdentifier" type="text" required placeholder="friend@example.com یا @username" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand" dir="ltr">
+      </div>
+      <div class="flex gap-3">
+        <div class="space-y-1.5 flex-1">
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">مبلغ</label>
+          <input id="loanAmount" type="text" inputmode="numeric" required placeholder="۰" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand">
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">ارز</label>
+          <select id="loanCurrency" class="h-12 bg-slate-50 border border-slate-100 rounded-2xl px-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20"></select>
+        </div>
+      </div>
+      <div class="space-y-1.5">
+        <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">توضیح (اختیاری)</label>
+        <input id="loanNote" type="text" maxlength="300" placeholder="بابت…" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand">
+      </div>
+      <button type="submit" class="w-full h-14 bg-brand hover:bg-brand-dark text-white rounded-2xl font-black text-sm shadow-xl shadow-brand/20 transition-all active:scale-[0.98]">ثبت و ارسال درخواست</button>
+    </form>
   </div>
 </div>
 

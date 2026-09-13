@@ -1,50 +1,95 @@
--- طرح پایگاه‌داده مدیریت حقوق ماهانه (Finanzierung) — نسخه‌ی چندکاربره
--- جداول به صورت idempotent ساخته می‌شوند. پاکت‌های پیش‌فرض هنگام ثبت‌نام هر کاربر
--- توسط Worker ساخته می‌شوند (نه به صورت سراسری).
+-- طرح پایگاه‌داده مدیریت حقوق ماهانه (Finanzierung)
+-- چندکاربره + تلگرام + چند‌ارزی + پاکت مشترک + قرض. جداول به‌صورت idempotent ساخته می‌شوند.
+-- پاکت‌های پیش‌فرض هنگام ثبت‌نام هر کاربر (در ارز پیش‌فرض) توسط Worker ساخته می‌شوند.
 
 CREATE TABLE IF NOT EXISTS users (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  email         TEXT    NOT NULL UNIQUE,
-  password_hash TEXT    NOT NULL,
-  password_salt TEXT    NOT NULL,
-  created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  email             TEXT UNIQUE,
+  password_hash     TEXT,
+  password_salt     TEXT,
+  telegram_id       TEXT UNIQUE,
+  telegram_username TEXT,
+  telegram_chat_id  TEXT,
+  display_name      TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-  id         TEXT    PRIMARY KEY,           -- توکن نشست تصادفی
+  id         TEXT PRIMARY KEY,
   user_id    INTEGER NOT NULL,
-  created_at TEXT    NOT NULL DEFAULT (datetime('now')),
-  expires_at TEXT    NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  code_hash  TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed   INTEGER NOT NULL DEFAULT 0,
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS pockets (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id     INTEGER NOT NULL,
-  name        TEXT    NOT NULL,
-  emoji       TEXT    NOT NULL DEFAULT '💰',
-  min_percent REAL    NOT NULL DEFAULT 0,
-  max_percent REAL    NOT NULL DEFAULT 0,
+  owner_id    INTEGER NOT NULL,
+  name        TEXT NOT NULL,
+  emoji       TEXT NOT NULL DEFAULT '💰',
+  min_percent REAL NOT NULL DEFAULT 0,
+  max_percent REAL NOT NULL DEFAULT 0,
+  currency    TEXT NOT NULL DEFAULT 'IRT',
   sort_order  INTEGER NOT NULL DEFAULT 0,
-  created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS transactions (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id     INTEGER NOT NULL,
-  pocket_id   INTEGER NOT NULL,
-  type        TEXT    NOT NULL CHECK (type IN ('income','expense')),
-  amount      REAL    NOT NULL CHECK (amount >= 0),
-  note        TEXT    NOT NULL DEFAULT '',
-  occurred_on TEXT    NOT NULL DEFAULT (date('now')),
-  created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+CREATE TABLE IF NOT EXISTS pocket_members (
+  pocket_id  INTEGER NOT NULL,
+  user_id    INTEGER NOT NULL,
+  role       TEXT NOT NULL DEFAULT 'member',   -- owner | member
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (pocket_id, user_id),
   FOREIGN KEY (pocket_id) REFERENCES pockets(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id)   REFERENCES users(id)   ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_pockets_user  ON pockets(user_id);
-CREATE INDEX IF NOT EXISTS idx_tx_user       ON transactions(user_id);
-CREATE INDEX IF NOT EXISTS idx_tx_pocket     ON transactions(pocket_id);
-CREATE INDEX IF NOT EXISTS idx_tx_date       ON transactions(occurred_on);
+CREATE TABLE IF NOT EXISTS transactions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  pocket_id   INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,                -- سازنده‌ی تراکنش
+  type        TEXT NOT NULL CHECK (type IN ('income','expense')),
+  amount      REAL NOT NULL CHECK (amount >= 0),
+  note        TEXT NOT NULL DEFAULT '',
+  currency    TEXT NOT NULL DEFAULT 'IRT',
+  occurred_on TEXT NOT NULL DEFAULT (date('now')),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (pocket_id) REFERENCES pockets(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id)   REFERENCES users(id)   ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS loans (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  lender_id   INTEGER NOT NULL,
+  borrower_id INTEGER NOT NULL,
+  amount      REAL NOT NULL CHECK (amount > 0),
+  repaid      REAL NOT NULL DEFAULT 0,
+  currency    TEXT NOT NULL DEFAULT 'IRT',
+  note        TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'pending', -- pending | active | settled | declined
+  created_by  INTEGER NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (lender_id)   REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (borrower_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user   ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_pockets_owner   ON pockets(owner_id);
+CREATE INDEX IF NOT EXISTS idx_pm_user         ON pocket_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_tx_pocket       ON transactions(pocket_id);
+CREATE INDEX IF NOT EXISTS idx_tx_date         ON transactions(occurred_on);
+CREATE INDEX IF NOT EXISTS idx_loans_lender    ON loans(lender_id);
+CREATE INDEX IF NOT EXISTS idx_loans_borrower  ON loans(borrower_id);
