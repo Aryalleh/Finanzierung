@@ -48,7 +48,12 @@ class AuthError extends Error {}
 async function api(path, options) {
   const res = await fetch("/api" + path, { headers: { "content-type": "application/json" }, credentials: "same-origin", ...options });
   if (res.status === 401 && !path.startsWith("/auth/")) throw new AuthError("نیازمند ورود");
-  if (!res.ok) { let m = "خطا در ارتباط با سرور"; try { const j = await res.json(); m = j.error || m; } catch {} const e = new Error(m); e.status = res.status; throw e; }
+  if (!res.ok) {
+    let m = "خطا در ارتباط با سرور", detail = "";
+    try { const j = await res.json(); m = j.error || m; detail = j.detail || ""; } catch {}
+    if (detail) { console.error("API error", path, res.status, detail); m = m + " — " + detail; }
+    const e = new Error(m); e.status = res.status; throw e;
+  }
   return res.status === 204 ? null : res.json();
 }
 

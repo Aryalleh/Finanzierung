@@ -161,6 +161,8 @@ async function ensureSchema(db) {
   try { await db.prepare(`UPDATE transactions SET user_id = (SELECT owner_id FROM pockets WHERE pockets.id = transactions.pocket_id) WHERE user_id IS NULL`).run(); } catch (e) {}
   try { await db.prepare(`UPDATE transactions SET currency = (SELECT currency FROM pockets WHERE pockets.id = transactions.pocket_id) WHERE currency IS NULL OR currency = ''`).run(); } catch (e) {}
   })();
+  // اگر مهاجرت شکست خورد، cache را پاک کن تا درخواست بعدی دوباره تلاش کند (نه اینکه برای همیشه ۵۰۰ بدهد)
+  schemaReady.catch(() => { schemaReady = null; });
   return schemaReady;
 }
 
