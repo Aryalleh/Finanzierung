@@ -38,8 +38,10 @@ function fmt(n) { return fmtC(n, state.currency); }
 function fmtSigned(n, sign) { return `${sign}${fmtNum(Math.abs(n))}`; }
 function faPct(n) { return new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 1 }).format(Number(n) || 0) + "٪"; }
 function faInt(n) { return new Intl.NumberFormat("fa-IR").format(Number(n) || 0); }
-function faDate(iso) { try { return new Intl.DateTimeFormat("fa-IR", { day: "numeric", month: "long" }).format(new Date(iso)); } catch { return iso; } }
-function monthLabel(m) { try { const [y, mo] = m.split("-").map(Number); return new Intl.DateTimeFormat("fa-IR", { year: "numeric", month: "long" }).format(new Date(y, mo - 1, 1)); } catch { return m; } }
+function calPref() { return localStorage.getItem("fin_calendar") || "jalali"; }
+function calLocale() { return calPref() === "gregorian" ? "fa-IR-u-ca-gregory" : "fa-IR-u-ca-persian"; }
+function faDate(iso) { try { return new Intl.DateTimeFormat(calLocale(), { day: "numeric", month: "long", year: "numeric" }).format(new Date(iso)); } catch { return iso; } }
+function monthLabel(m) { try { const [y, mo] = m.split("-").map(Number); return new Intl.DateTimeFormat(calLocale(), { year: "numeric", month: "long" }).format(new Date(y, mo - 1, 1)); } catch { return m; } }
 function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function personName(o) { return o.name || o.display_name || (o.username || o.telegram_username ? "@" + (o.username || o.telegram_username) : null) || o.email || "کاربر"; }
 
@@ -839,6 +841,12 @@ function syncThemeButtons() {
   $$("#paletteOptions .palette-opt").forEach((b) => {
     b.classList.toggle("border-brand", b.dataset.paletteOpt === pal);
   });
+  const cal = calPref();
+  $$("#calendarOptions .cal-opt").forEach((b) => {
+    const a = b.dataset.calOpt === cal;
+    b.classList.toggle("border-brand", a); b.classList.toggle("bg-brand/5", a); b.classList.toggle("text-brand", a);
+    b.classList.toggle("border-slate-100", !a);
+  });
 }
 $("#themeOptions").addEventListener("click", (e) => {
   const b = e.target.closest("[data-theme-opt]"); if (!b) return;
@@ -847,6 +855,10 @@ $("#themeOptions").addEventListener("click", (e) => {
 $("#paletteOptions").addEventListener("click", (e) => {
   const b = e.target.closest("[data-palette-opt]"); if (!b) return;
   localStorage.setItem("fin_palette", b.dataset.paletteOpt); applyTheme(); syncThemeButtons();
+});
+$("#calendarOptions").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cal-opt]"); if (!b) return;
+  localStorage.setItem("fin_calendar", b.dataset.calOpt); syncThemeButtons(); applyMonth(); refresh();
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { if (currentThemePref() === "system") applyTheme(); });
 
