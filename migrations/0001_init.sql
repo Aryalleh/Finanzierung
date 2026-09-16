@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS pockets (
   min_percent REAL NOT NULL DEFAULT 0,
   max_percent REAL NOT NULL DEFAULT 0,
   currency    TEXT NOT NULL DEFAULT 'IRT',
-  kind        TEXT NOT NULL DEFAULT 'discretionary',  -- essential | discretionary | savings | investment
+  kind        TEXT NOT NULL DEFAULT 'discretionary',  -- essential | discretionary | savings | investment | emergency
   sort_order  INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE

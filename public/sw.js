@@ -1,5 +1,7 @@
 /* Service Worker — کش پوسته برای آفلاین + شبکه‌محور برای تازه‌ماندن */
-const CACHE = "finanzierung-v5";
+// __APP_VERSION__ را ورکر هنگام سرو کردن این فایل با نسخه‌ی جاری جایگزین می‌کند،
+// تا با هر آپدیت، بایت‌های sw.js و نام کش تغییر کنند و مرورگر نسخه‌ی جدید را نصب کند.
+const CACHE = "finanzierung-__APP_VERSION__";
 const API_CACHE = "finanzierung-api-v1";
 const SHELL = [
   "/",
@@ -11,7 +13,14 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // عمداً skipWaiting نمی‌زنیم: می‌گذاریم نسخه‌ی جدید در حالت waiting بماند تا اپ
+  // پاپ‌آپ «به‌روزرسانی» را نشان دهد. فقط با کلیک کاربر (پیام SKIP_WAITING) فعال می‌شود.
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
+});
+
+// کاربر روی «به‌روزرسانی» زد → همین حالا فعال شو (سپس controllerchange صفحه را نو می‌کند).
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {

@@ -6,7 +6,10 @@
  * پاکت‌های مشترک بین کاربران، و دفتر قرض بین کاربران.
  */
 
-const APP_VERSION = "2025.10.02"; // با هر تغییر فرانت این را عوض کنید تا پاپ‌آپ به‌روزرسانی نشان داده شود
+// تنها منبعِ نسخه: با هر تغییر فرانت فقط همین را عوض کنید.
+// این مقدار هم در /api/config برای پاپ‌آپ نسخه استفاده می‌شود و هم داخل /sw.js تزریق
+// می‌شود تا نام کش سرویس‌ورکر تغییر کند و مرورگر نسخه‌ی جدید را تشخیص دهد.
+const APP_VERSION = "2025.10.03";
 const COOKIE_NAME = "fin_session";
 const SESSION_TTL_DAYS = 30;
 const PBKDF2_ITERATIONS = 100000;
@@ -14,15 +17,17 @@ const LOGIN_REQUEST_TTL_MIN = 3;
 const CURRENCIES = ["IRT", "IRR", "EUR", "USD", "TRY"];
 const DEFAULT_CURRENCY = "IRT";
 
-// نوع هر پاکت برای نمره‌دهی: essential | discretionary | savings | investment
-const POCKET_KINDS = ["essential", "discretionary", "savings", "investment"];
+// نوع هر پاکت برای نمره‌دهی: essential | discretionary | savings | investment | emergency
+// «emergency» پاکت اجباریِ هزینه و پس‌انداز اضطراری است؛ همیشه ساخته می‌شود و قابل حذف نیست.
+const POCKET_KINDS = ["essential", "discretionary", "savings", "investment", "emergency"];
+const EMERGENCY_KIND = "emergency";
 const DEFAULT_POCKETS = [
   ["اجاره و هزینه‌های ثابت", "🏠", 35, 45, 1, "essential"],
   ["غذا و خرید روزمره", "🛒", 10, 15, 2, "essential"],
   ["حمل‌ونقل", "🚆", 5, 10, 3, "essential"],
   ["قبض و اشتراک‌ها", "📱", 5, 5, 4, "essential"],
   ["تفریح و خرید شخصی", "🎉", 10, 10, 5, "discretionary"],
-  ["پس‌انداز اضطراری", "💰", 10, 15, 6, "savings"],
+  ["هزینه و پس‌انداز اضطراری", "🛟", 10, 15, 6, EMERGENCY_KIND],
   ["سرمایه‌گذاری / پس‌انداز هدفمند", "📈", 5, 10, 7, "investment"],
 ];
 
@@ -163,6 +168,23 @@ async function ensureSchema(db) {
   try { await db.prepare(`INSERT OR IGNORE INTO pocket_members (pocket_id, user_id, role) SELECT id, owner_id, 'owner' FROM pockets WHERE owner_id IS NOT NULL`).run(); } catch (e) {}
   try { await db.prepare(`UPDATE transactions SET user_id = (SELECT owner_id FROM pockets WHERE pockets.id = transactions.pocket_id) WHERE user_id IS NULL`).run(); } catch (e) {}
   try { await db.prepare(`UPDATE transactions SET currency = (SELECT currency FROM pockets WHERE pockets.id = transactions.pocket_id) WHERE currency IS NULL OR currency = ''`).run(); } catch (e) {}
+
+  // پاکت اضطراری اجباری: پاکت‌های «اضطراری» قدیمی (که نوعشان savings بود) را به نوع emergency ارتقا بده،
+  // و برای هر حساب ارزی که پاکت اضطراری ندارد یکی بساز تا این پاکت همیشه موجود باشد.
+  try { await db.prepare(`UPDATE pockets SET kind='emergency' WHERE kind='savings' AND name LIKE '%اضطرار%'`).run(); } catch (e) {}
+  try {
+    const { results } = await db.prepare(
+      `SELECT DISTINCT owner_id, currency FROM pockets WHERE owner_id IS NOT NULL
+       AND (owner_id, currency) NOT IN (SELECT owner_id, currency FROM pockets WHERE kind='emergency')`
+    ).all();
+    for (const r of results || []) {
+      const ord = await db.prepare(`SELECT COALESCE(MAX(sort_order),0)+1 AS o FROM pockets WHERE owner_id=? AND currency=?`).bind(r.owner_id, r.currency).first();
+      const res = await db.prepare(
+        `INSERT INTO pockets (owner_id, name, emoji, min_percent, max_percent, currency, kind, sort_order) VALUES (?,?,?,?,?,?, 'emergency', ?)`
+      ).bind(r.owner_id, "هزینه و پس‌انداز اضطراری", "🛟", 10, 15, r.currency, ord.o).run();
+      await db.prepare(`INSERT OR IGNORE INTO pocket_members (pocket_id, user_id, role) VALUES (?,?, 'owner')`).bind(res.meta.last_row_id, r.owner_id).run();
+    }
+  } catch (e) {}
   })();
   // اگر مهاجرت شکست خورد، cache را پاک کن تا درخواست بعدی دوباره تلاش کند (نه اینکه برای همیشه ۵۰۰ بدهد)
   schemaReady.catch(() => { schemaReady = null; });
@@ -234,8 +256,10 @@ function monthAdd(month, delta) {
 /* ============ موتور نمره‌دهی مدیریت مالی ============ */
 // جداول امتیاز (بر پایه‌ی الگوریتم مورد توافق)
 const catScore = (d) => (d <= 0 ? 100 : d <= 0.1 ? 95 : d <= 0.25 ? 85 : d <= 0.5 ? 70 : d <= 1 ? 45 : 0);
-const savingsBase = (r) => (r < 0 ? 0 : r < 0.05 ? 8 : r < 0.1 ? 15 : r < 0.15 ? 21 : r < 0.2 ? 25 : r < 0.25 ? 28 : 30);
+const savingsBase = (r) => (r < 0 ? 0 : r < 0.05 ? 5 : r < 0.1 ? 10 : r < 0.15 ? 14 : r < 0.2 ? 17 : r < 0.25 ? 19 : 20);
 const savingsBonus = (imp) => (imp <= 0 ? 0 : imp <= 0.05 ? 1 : imp <= 0.1 ? 3 : 5);
+// تاب‌آوری در برابر هزینه‌های بزرگ: چند ماه هزینه‌ی ضروری را می‌توان از پاکت اضطراری پوشش داد.
+const emergencyScore = (cov) => (cov >= 6 ? 15 : cov >= 4 ? 13 : cov >= 3 ? 11 : cov >= 2 ? 8 : cov >= 1 ? 5 : cov >= 0.5 ? 2 : 0);
 const liquidityScore = (r) => (r >= 1.2 ? 15 : r >= 1 ? 13 : r >= 0.9 ? 8 : r >= 0.75 ? 4 : 0);
 const stabilityScore = (g) => (g <= 0 ? 10 : g <= 0.1 ? 9 : g <= 0.2 ? 7 : g <= 0.4 ? 5 : g <= 0.7 ? 3 : 0);
 const lifestyleScore = (rate, target) => (rate <= target ? 10 : rate <= target + 0.05 ? 8 : rate <= target + 0.1 ? 6 : rate <= target + 0.2 ? 3 : 0);
@@ -290,12 +314,25 @@ async function savingBaseline(db, uid, currency, month) {
   return n ? sum / n : null;
 }
 
+// موجودی انباشته‌ی پاکت‌های اضطراری تا پایان ماهِ انتخاب‌شده (بافرِ آماده برای هزینه‌های بزرگ).
+async function emergencyBalanceAsOf(db, uid, currency, month) {
+  const { end } = monthRange(month);
+  const row = await db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN t.type='income' THEN t.amount END),0)
+          - COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount END),0) AS bal
+     FROM pockets p JOIN pocket_members pm ON pm.pocket_id=p.id AND pm.user_id=?1
+     LEFT JOIN transactions t ON t.pocket_id=p.id AND t.loan_id IS NULL AND t.occurred_on < ?3
+     WHERE p.currency=?2 AND p.kind='emergency'`
+  ).bind(uid, currency, end).first();
+  return Math.max(0, row ? row.bal : 0);
+}
+
 async function computeScore(db, uid, currency, month, withMomentum = true) {
   const agg = await aggregateMonth(db, uid, currency, month);
   if (!agg.has_data) return { month, currency, score: null, has_data: false };
   const income = agg.income || 0;
 
-  // ۱) کنترل بودجه (۳۵)
+  // ۱) کنترل بودجه (۳۰)
   let bw = 0, bAcc = 0, worst = null;
   for (const p of agg.spending) {
     const budget = income * p.weight;
@@ -305,9 +342,9 @@ async function computeScore(db, uid, currency, month, withMomentum = true) {
     const w = p.weight > 0 ? p.weight : 0.01;
     bAcc += cs * w; bw += w;
   }
-  const budgetScore = (bw > 0 ? bAcc / bw : 100) / 100 * 35;
+  const budgetScore = (bw > 0 ? bAcc / bw : 100) / 100 * 30;
 
-  // ۲) پس‌انداز (۳۰) + پاداش (۵)
+  // ۲) پس‌انداز (۲۰) + پاداش (۵)
   const savingRate = income > 0 ? agg.saved / income : 0;
   const baseline = await savingBaseline(db, uid, currency, month);
   const improvement = baseline == null ? 0 : savingRate - baseline;
@@ -315,19 +352,26 @@ async function computeScore(db, uid, currency, month, withMomentum = true) {
   const bonus = savingsBonus(improvement);
   const savingsTotal = savBase + bonus;
 
-  // ۳) نقدینگی (۱۵)
+  // ۳) صندوق اضطراری (۱۵): آیا اگر هزینه‌ی بزرگی پیش بیاید از پسش برمی‌آید؟
+  // پوشش = موجودی پاکت اضطراری ÷ هزینه‌ی ضروریِ ماهانه (بر حسب «چند ماه»).
+  const emergencyBalance = await emergencyBalanceAsOf(db, uid, currency, month);
+  const monthlyEssential = agg.essential_out > 0 ? agg.essential_out : (income > 0 ? income * 0.5 : 0);
+  const emergencyCoverage = monthlyEssential > 0 ? emergencyBalance / monthlyEssential : (emergencyBalance > 0 ? 6 : 0);
+  const emergency = emergencyScore(emergencyCoverage);
+
+  // ۴) نقدینگی (۱۵)
   const availForEssentials = income - agg.discretionary_out - Math.max(0, agg.saved);
   const liqRatio = agg.essential_out > 0 ? availForEssentials / agg.essential_out : (availForEssentials >= 0 ? 1.5 : 0);
   let liq = liquidityScore(liqRatio);
   if (agg.borrowed > 0) liq = Math.min(liq, 5);
 
-  // ۴) ثبات (۱۰)
+  // ۵) ثبات (۱۰)
   const prev = await aggregateMonth(db, uid, currency, monthAdd(month, -1));
   const dGrowth = prev.discretionary_out > 0 ? (agg.discretionary_out - prev.discretionary_out) / prev.discretionary_out : (agg.discretionary_out > 0 ? 1 : 0);
   const incGrowth = prev.income > 0 ? (income - prev.income) / prev.income : 0;
   const stab = stabilityScore(dGrowth - Math.max(0, incGrowth));
 
-  // ۵) ولخرجی (۱۰)
+  // ۶) ولخرجی (۱۰)
   const discRate = income > 0 ? agg.discretionary_out / income : 0;
   const target = agg.disc_budget_rate > 0 ? agg.disc_budget_rate : 0.15;
   const life = lifestyleScore(discRate, target);
@@ -340,7 +384,7 @@ async function computeScore(db, uid, currency, month, withMomentum = true) {
   const affordable = agg.borrowed === 0 && liqRatio >= 1 && surplusAfterLoans >= 0;
   if (agg.lent > 0 && income > 0 && affordable) loanAdj += clamp((agg.lent / income) * 20, 0, 5);
 
-  let raw = budgetScore + savingsTotal + liq + stab + life + loanAdj;
+  let raw = budgetScore + savingsTotal + emergency + liq + stab + life + loanAdj;
   let final = clamp(raw, 0, 100);
   if (liqRatio < 0.9) final = Math.min(final, 59);   // هزینه‌های ضروری تأمین نشده
   if (agg.borrowed > 0) final = Math.min(final, 69);  // برای هزینه‌ی عادی قرض گرفته
@@ -350,19 +394,24 @@ async function computeScore(db, uid, currency, month, withMomentum = true) {
   const recs = [];
   if (worst && worst.dev > 0.1) recs.push({ type: "budget", text: `این ماه ${Math.round(worst.dev * 100)}٪ بیشتر از بودجه‌ی «${worst.name}» خرج کردی.` });
   if (agg.borrowed > 0) recs.push({ type: "loan", text: "این ماه قرض گرفتی؛ نمره را کاهش داد. سعی کن ماه بعد بدون قرض هزینه‌ها را پوشش دهی." });
-  if (savBase < 21) recs.push({ type: "savings", text: `نرخ پس‌اندازت ${Math.round(savingRate * 100)}٪ بود؛ افزایش آن نمره را بالا می‌برد.` });
+  if (savBase < 14) recs.push({ type: "savings", text: `نرخ پس‌اندازت ${Math.round(savingRate * 100)}٪ بود؛ افزایش آن نمره را بالا می‌برد.` });
+  if (emergency < 11) recs.push({ type: "emergency", text: emergencyCoverage < 1
+    ? "پاکت «هزینه و پس‌انداز اضطراری»‌ات حتی یک ماه هزینه‌ی ضروری را پوشش نمی‌دهد؛ کم‌کم آن را پر کن تا اگر هزینه‌ی بزرگی پیش آمد از پسش بربیای."
+    : `صندوق اضطراری‌ات حدود ${Math.round(emergencyCoverage * 10) / 10} ماه هزینه را پوشش می‌دهد؛ رساندنش به ۶ ماه نمره را کامل می‌کند.` });
   if (liq < 13) recs.push({ type: "liquidity", text: "پوشش هزینه‌های ضروری‌ات این ماه ضعیف بود." });
   if (life < 8) recs.push({ type: "lifestyle", text: `هزینه‌های اختیاری ${Math.round(discRate * 100)}٪ درآمدت را تشکیل داد.` });
   const positives = [];
   if (bonus > 0 && improvement > 0) positives.push(`این ماه ${Math.round(improvement * 100)} واحد درصد بهتر از میانگین معمولت پس‌انداز کردی. 👏`);
+  if (emergencyCoverage >= 6) positives.push("صندوق اضطراری‌ات بیش از ۶ ماه هزینه را پوشش می‌دهد؛ در برابر هزینه‌های بزرگ آماده‌ای. 🛟");
   if (agg.lent > agg.borrowed && agg.lent > 0) positives.push("این ماه قرض دادی؛ نشانه‌ی مدیریت خوب نقدینگی. 👍");
 
   const meta = scoreLabel(final);
   const result = {
     month, currency, score: final, has_data: true, label: meta.label, label_emoji: meta.emoji, tone: meta.tone,
     breakdown: {
-      budget: { score: Math.round(budgetScore * 10) / 10, max: 35 },
-      savings: { score: savBase, bonus, max: 30, saving_rate: Math.round(savingRate * 1000) / 10, baseline: baseline == null ? null : Math.round(baseline * 1000) / 10 },
+      budget: { score: Math.round(budgetScore * 10) / 10, max: 30 },
+      savings: { score: savBase, bonus, max: 20, saving_rate: Math.round(savingRate * 1000) / 10, baseline: baseline == null ? null : Math.round(baseline * 1000) / 10 },
+      emergency: { score: emergency, max: 15, coverage: Math.round(emergencyCoverage * 10) / 10, balance: Math.round(emergencyBalance) },
       liquidity: { score: liq, max: 15, ratio: Math.round(liqRatio * 100) / 100 },
       stability: { score: stab, max: 10 },
       lifestyle: { score: life, max: 10, discretionary_rate: Math.round(discRate * 1000) / 10 },
@@ -745,7 +794,8 @@ async function handleData(req, db, uid, segments) {
       const emoji = b.emoji != null ? b.emoji.toString().slice(0, 8) : p.emoji;
       const min = b.min_percent != null ? num(b.min_percent) : p.min_percent;
       const max = b.max_percent != null ? num(b.max_percent) : p.max_percent;
-      const kind = b.kind != null ? validKind(b.kind) : p.kind;
+      // پاکت اضطراری اجباری است؛ نوعش قابل تغییر نیست (اما نام/سهم/ایموجی آزاد است).
+      const kind = p.kind === EMERGENCY_KIND ? EMERGENCY_KIND : (b.kind != null ? validKind(b.kind) : p.kind);
       if (!name) return badRequest("نام نمی‌تواند خالی باشد");
       await db.prepare(`UPDATE pockets SET name=?, emoji=?, min_percent=?, max_percent=?, kind=? WHERE id=?`).bind(name, emoji, min, max, kind, id).run();
       return json({ ok: true });
@@ -754,6 +804,7 @@ async function handleData(req, db, uid, segments) {
     if (method === "DELETE" && id) {
       const p = await pocketOwned(db, id, uid);
       if (!p) return forbidden("فقط مالک می‌تواند حذف کند");
+      if (p.kind === EMERGENCY_KIND) return badRequest("پاکت «هزینه و پس‌انداز اضطراری» اجباری است و قابل حذف نیست");
       await db.prepare(`DELETE FROM pockets WHERE id=?`).bind(id).run();
       await db.prepare(`DELETE FROM transactions WHERE pocket_id=?`).bind(id).run();
       await db.prepare(`DELETE FROM pocket_members WHERE pocket_id=?`).bind(id).run();
@@ -1053,6 +1104,19 @@ export default {
     if (url.pathname.startsWith("/api/")) {
       try { return await handleApi(req, env, url.pathname); }
       catch (err) { return json({ error: "خطای سرور", detail: String(err && err.message ? err.message : err) }, 500); }
+    }
+    // سرویس‌ورکر را با نسخه‌ی جاری سرو کن تا بایت‌هایش با هر آپدیت تغییر کند و
+    // مرورگر نسخه‌ی جدید را نصب کند (پیش‌نیاز نمایش پاپ‌آپ به‌روزرسانی).
+    if (url.pathname === "/sw.js") {
+      const res = await env.ASSETS.fetch(req);
+      if (!res.ok) return res;
+      const body = (await res.text()).replace(/__APP_VERSION__/g, APP_VERSION);
+      return new Response(body, {
+        headers: {
+          "content-type": "application/javascript; charset=utf-8",
+          "cache-control": "no-cache",
+        },
+      });
     }
     return env.ASSETS.fetch(req);
   },

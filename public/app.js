@@ -272,7 +272,10 @@ function openPocket(pocket = null) {
   $("#pocketMax").value = pocket ? pocket.max_percent : 0;
   $("#pocketKind").value = pocket ? (pocket.kind || "discretionary") : "discretionary";
   ["#pocketEmoji", "#pocketName", "#pocketMin", "#pocketMax", "#pocketKind"].forEach((s) => ($(s).disabled = !isOwner));
-  $("#pocketDelete").hidden = !pocket || !isOwner;
+  // پاکت اضطراری اجباری است: نوعش قفل و حذفش غیرفعال (نام/سهم/ایموجی آزاد).
+  const isEmergency = !!(pocket && pocket.kind === "emergency");
+  if (isEmergency) $("#pocketKind").disabled = true;
+  $("#pocketDelete").hidden = !pocket || !isOwner || isEmergency;
   $("#pocketOwnerActions").hidden = !isOwner;
   // بخش اعضا برای هر پاکت موجود نمایش داده می‌شود (سهم هرکس)؛ افزودن عضو فقط برای مالک
   $("#pocketShare").hidden = !pocket;
@@ -519,7 +522,7 @@ const TONE = {
   warn: { ring: "#f97316", bg: "bg-orange-50", text: "text-orange-600" },
   bad: { ring: "#ef4444", bg: "bg-red-50", text: "text-red-600" },
 };
-const KIND_LABEL = { essential: "ضروری", discretionary: "اختیاری", savings: "پس‌انداز", investment: "سرمایه‌گذاری" };
+const KIND_LABEL = { essential: "ضروری", discretionary: "اختیاری", savings: "پس‌انداز", investment: "سرمایه‌گذاری", emergency: "اضطراری" };
 function gaugeSvg(score, color) {
   const R = 52, C = 2 * Math.PI * R, off = C * (1 - (score || 0) / 100);
   return `<svg viewBox="0 0 120 120" class="w-32 h-32 -rotate-90">
@@ -582,6 +585,7 @@ function renderScore(s) {
     <div class="space-y-3 mt-6">
       ${barRow("کنترل بودجه", b.budget.score, b.budget.max)}
       ${barRow("پس‌انداز و سرمایه‌گذاری", b.savings.score + b.savings.bonus, b.savings.max, `نرخ ${faPct(b.savings.saving_rate)}${b.savings.bonus ? " · پاداش +" + faInt(b.savings.bonus) : ""}`)}
+      ${b.emergency ? barRow("صندوق اضطراری", b.emergency.score, b.emergency.max, `پوشش ${faInt(b.emergency.coverage)} ماه`) : ""}
       ${barRow("نقدینگی", b.liquidity.score, b.liquidity.max)}
       ${barRow("ثبات مالی", b.stability.score, b.stability.max)}
       ${barRow("کنترل ولخرجی", b.lifestyle.score, b.lifestyle.max, `اختیاری ${faPct(b.lifestyle.discretionary_rate)}`)}
