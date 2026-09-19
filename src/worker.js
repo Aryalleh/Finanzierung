@@ -9,13 +9,13 @@
 // تنها منبعِ نسخه: با هر تغییر فرانت فقط همین را عوض کنید.
 // این مقدار هم در /api/config برای پاپ‌آپ نسخه استفاده می‌شود و هم داخل /sw.js تزریق
 // می‌شود تا نام کش سرویس‌ورکر تغییر کند و مرورگر نسخه‌ی جدید را تشخیص دهد.
-const APP_VERSION = "2025.10.03";
+const APP_VERSION = "2025.10.04";
 const COOKIE_NAME = "fin_session";
 const SESSION_TTL_DAYS = 30;
 const PBKDF2_ITERATIONS = 100000;
 const LOGIN_REQUEST_TTL_MIN = 3;
 const CURRENCIES = ["IRT", "IRR", "EUR", "USD", "TRY"];
-const DEFAULT_CURRENCY = "IRT";
+const DEFAULT_CURRENCY = "EUR"; // ارز اصلی برنامه یورو است؛ کاربر موقع ثبت‌نام می‌تواند عوض کند
 
 // نوع هر پاکت برای نمره‌دهی: essential | discretionary | savings | investment | emergency
 // «emergency» پاکت اجباریِ هزینه و پس‌انداز اضطراری است؛ همیشه ساخته می‌شود و قابل حذف نیست.
@@ -511,6 +511,7 @@ async function handleAuth(req, env, db, segments) {
     const b = await req.json().catch(() => ({}));
     const email = (b.email || "").toString().trim().toLowerCase();
     const password = (b.password || "").toString();
+    const currency = validCurrency(b.currency); // ارز انتخابیِ کاربر (پیش‌فرض یورو)
     if (!isValidEmail(email)) return badRequest("ایمیل نامعتبر است");
     if (password.length < 8) return badRequest("رمز عبور باید حداقل ۸ کاراکتر باشد");
     if (await db.prepare(`SELECT id FROM users WHERE email = ?`).bind(email).first()) return json({ error: "این ایمیل قبلاً ثبت شده است" }, 409);
@@ -518,7 +519,7 @@ async function handleAuth(req, env, db, segments) {
     const res = await db.prepare(`INSERT INTO users (email, password_hash, password_salt, display_name) VALUES (?,?,?,?)`)
       .bind(email, hash, salt, email.split("@")[0]).run();
     const uid = res.meta.last_row_id;
-    await seedPockets(db, uid, DEFAULT_CURRENCY);
+    await seedPockets(db, uid, currency);
     const cookie = await createSession(db, uid, req);
     return json({ user: { id: uid, email } }, 201, { "Set-Cookie": cookie });
   }

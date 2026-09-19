@@ -13,7 +13,7 @@ const CURRENCIES = [
 
 const state = {
   month: currentMonth(),
-  currency: localStorage.getItem("fin_currency") || "IRT",
+  currency: localStorage.getItem("fin_currency") || "EUR",
   pockets: [],
   user: null,
 };
@@ -127,6 +127,19 @@ function closeModal(id) { $(id).hidden = true; }
 document.body.addEventListener("click", (e) => { const c = e.target.closest("[data-close]"); if (c) { const m = c.closest(".fixed.z-50"); if (m) m.hidden = true; } });
 
 /* ============ داشبورد ============ */
+// اگر ارز جاری در حساب‌های کاربر نبود، به اولین ارزِ موجود سوییچ کن، بعد رفرش.
+async function ensureCurrencyThenRefresh() {
+  try {
+    const { currencies } = await api("/currencies");
+    const owned = (currencies || []).map((c) => c.currency);
+    if (owned.length && !owned.includes(state.currency)) {
+      state.currency = owned[0];
+      try { localStorage.setItem("fin_currency", state.currency); } catch {}
+      applyCurrencyLabel();
+    }
+  } catch {}
+  refresh();
+}
 async function refresh() {
   try {
     const q = `currency=${state.currency}`;
@@ -660,7 +673,7 @@ $("#currencyOptions").addEventListener("click", async (e) => {
       toast("حساب ارزی حذف شد");
       if (state.currency === code) {
         const rest = ownedCurrencies.filter((c) => c !== code);
-        state.currency = rest[0] || "IRT";
+        state.currency = rest[0] || "EUR";
         localStorage.setItem("fin_currency", state.currency);
         applyCurrencyLabel();
       }
@@ -721,6 +734,7 @@ function setAuthMode(mode) {
   $("#authSwitchText").textContent = login ? "حساب کاربری ندارید؟" : "حساب کاربری دارید؟";
   $("#authToggle").textContent = login ? "ثبت‌نام کنید" : "وارد شوید";
   $("#authPassword").autocomplete = login ? "current-password" : "new-password";
+  $("#authCurrencyRow").hidden = login; // انتخاب ارز فقط هنگام ثبت‌نام
   $("#authError").hidden = true;
 }
 function showEmailAuth() {
@@ -749,7 +763,7 @@ function showApp() {
   const name = userName(state.user);
   $("#userGreet").textContent = name ? "، " + name.replace(/^@/, "").split("@")[0] : "";
   $("#avatarBtn").innerHTML = avatarInner(state.user);
-  applyMonth(); applyCurrencyLabel(); updateSyncUI(); refresh();
+  applyMonth(); applyCurrencyLabel(); updateSyncUI(); ensureCurrencyThenRefresh();
   if (navigator.onLine && queueCount() > 0) flushQueue();
   startPolling();
 }
@@ -765,10 +779,15 @@ $("#authForm").addEventListener("submit", async (e) => {
   const email = $("#authEmail").value.trim(), password = $("#authPassword").value, errEl = $("#authError");
   errEl.hidden = true;
   const btn = $("#authSubmit"), orig = btn.textContent; btn.disabled = true; btn.textContent = "لطفاً صبر کنید…";
+  const register = authMode !== "login";
+  const payload = { email, password };
+  if (register) payload.currency = $("#authCurrency").value; // ارز انتخابی هنگام ثبت‌نام
   try {
-    const res = await fetch("/api/auth/" + (authMode === "login" ? "login" : "register"), { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ email, password }) });
+    const res = await fetch("/api/auth/" + (register ? "register" : "login"), { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify(payload) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "خطا در احراز هویت");
+    // با ثبت‌نام، ارز انتخابی را ارز جاری کن تا کاربر مستقیم روی حساب خودش بنشیند
+    if (register && payload.currency) { state.currency = payload.currency; try { localStorage.setItem("fin_currency", state.currency); } catch {} applyCurrencyLabel(); }
     state.user = data.user; showApp();
   } catch (err) { errEl.textContent = err.message; errEl.hidden = false; }
   finally { btn.disabled = false; btn.textContent = orig; }

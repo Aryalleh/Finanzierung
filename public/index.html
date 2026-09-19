@@ -65,6 +65,17 @@
             </button>
           </div>
         </div>
+        <div class="space-y-1.5" id="authCurrencyRow" hidden>
+          <label class="text-[10px] font-black text-slate-400 mr-1 uppercase tracking-widest">ارز حساب</label>
+          <select id="authCurrency" class="w-full h-12 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand transition-all">
+            <option value="EUR">€ یورو</option>
+            <option value="IRT">تومان</option>
+            <option value="IRR">﷼ ریال</option>
+            <option value="USD">$ دلار</option>
+            <option value="TRY">₺ لیر</option>
+          </select>
+          <p class="text-[10px] font-bold text-slate-400 mr-1">ارز اصلی حسابت؛ بعداً می‌توانی ارزهای دیگر هم اضافه کنی.</p>
+        </div>
         <p id="authError" class="text-xs font-bold text-red-600 bg-red-50 rounded-xl px-3 py-2 text-center" hidden></p>
         <button id="authSubmit" type="submit" class="w-full h-14 bg-brand hover:bg-brand-dark text-white rounded-2xl font-black text-sm shadow-xl shadow-brand/20 transition-all active:scale-[0.98] mt-2">ورود به حساب کاربری</button>
       </form>
